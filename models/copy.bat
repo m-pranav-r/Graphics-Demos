@@ -1,0 +1,1 @@
+xcopy /Y/I/H/S ..\shader ..\..\x64\Debug\models
