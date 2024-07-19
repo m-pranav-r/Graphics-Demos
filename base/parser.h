@@ -18,6 +18,8 @@
 #include <fastgltf/glm_element_traits.hpp>
 
 #include <iostream>
+#include <future>
+#include <execution>
 
 enum TextureType {
 	BASE = 0,
@@ -86,5 +88,10 @@ public:
 	void parse(std::filesystem::path path);
 
 	void parse_sponza(std::filesystem::path path);
+
+private:
+	std::mutex drawablesMutex;
+
+	void processPrimitive(fastgltf::Primitive& primitive, fastgltf::Asset& asset);
 };
 

@@ -19,7 +19,7 @@ public:
 
 	void addShaderDefinitionTerm(const char* term);
 
-	void readFile(const std::string& fileName);
+	void readFileGLSL(const std::string& fileName);
 
 	std::vector<char> readFileHead(const std::string& fileName);
 
@@ -27,13 +27,15 @@ public:
 
 	void compileShaderToSPIRVAndCreateShaderModule();
 
+	void readCompiledSPIRVAndCreateShaderModule(const std::string& fileName);
+
 	void init(std::string name, Type type, VkDevice device);
+
+	void createShaderModule(std::vector<uint32_t> code);
 
 	VkShaderModule shaderModule;
 
 private:
-
-	void createShaderModule(const std::vector<uint32_t>& code);
 
 	std::vector<char> glslBuffer;
 

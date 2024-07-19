@@ -2,7 +2,6 @@ x64-Debug/
 *.spv
 .vs/
 models/Sponza
-*.vcxproj
 [Dd]ebug/
 [Dd]ebugPublic/
 [Rr]elease/

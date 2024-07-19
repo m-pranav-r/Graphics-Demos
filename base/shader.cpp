@@ -1,12 +1,17 @@
 #include "shader.h"
 
-void ShaderHelper::createShaderModule(const std::vector<uint32_t>& code) {
+void ShaderHelper::createShaderModule(std::vector<uint32_t> code) {
 	VkShaderModuleCreateInfo createInfo{};
 	createInfo.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
-	createInfo.codeSize = code.size() * sizeof(uint32_t);
+	createInfo.codeSize = code.size();// *sizeof(uint32_t);
 	createInfo.pCode = code.data();
 
-	if (vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule) != VK_SUCCESS) {
+	if (code.size() == 0) {
+		throw std::runtime_error("sda");
+	}
+
+	VkResult shaderModuleCreateResult = vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule);
+	if (shaderModuleCreateResult != VK_SUCCESS) {
 		throw std::runtime_error("failed to create shader module!");
 	}
 }
@@ -61,6 +66,23 @@ void ShaderHelper::compileShaderToSPIRVAndCreateShaderModule()
 	createShaderModule(spirvBuffer);
 }
 
+void ShaderHelper::readCompiledSPIRVAndCreateShaderModule(const std::string& fileName)
+{
+	std::ifstream file(fileName, std::ios::ate | std::ios::binary);
+
+	if (!file.is_open()) {
+		throw std::runtime_error("failed to open file!");
+	}
+	size_t fileSize = (size_t)file.tellg();
+	spirvBuffer.resize(fileSize);
+
+	file.seekg(0);
+	file.read(reinterpret_cast<char*>(spirvBuffer.data()), fileSize);
+	file.close();
+
+	createShaderModule(spirvBuffer);
+}
+
 void ShaderHelper::init(std::string name, Type type, VkDevice device)
 {
 	this->shaderName = name;
@@ -87,7 +109,7 @@ std::vector<char> ShaderHelper::readFileHead(const std::string& fileName)
 	return headBuffer;
 }
 
-void ShaderHelper::readFile(const std::string& fileName) {
+void ShaderHelper::readFileGLSL(const std::string& fileName) {
 	std::ifstream file(fileName, std::ios::ate | std::ios::binary);
 
 	if (!file.is_open()) {

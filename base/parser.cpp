@@ -182,6 +182,114 @@ void GLTFParser::glTFError(fastgltf::Error error) {
 	}
 }
 
+void GLTFParser::processPrimitive(fastgltf::Primitive &primitive, fastgltf::Asset &asset)
+{
+	Drawable currDrawable;
+	//vertex data
+	for (auto attrib : primitive.attributes) {
+		//std::cout << "ACCESSOR DATA:\n" << attrib.first << "	" << attrib.second << "\n";
+		if (attrib.first == "NORMAL") {
+			auto& accessor = asset.accessors[attrib.second];
+			currDrawable.normals.resize(accessor.count);
+
+			std::size_t idx = 0;
+			fastgltf::iterateAccessor<glm::vec3>(asset, accessor, [&](glm::vec3 index) {
+				currDrawable.normals[idx++] = index;
+				});
+		}
+		else if (attrib.first == "TANGENT") {
+			currDrawable.hasTangents = true;
+			auto& accessor = asset.accessors[attrib.second];
+			currDrawable.tangents.resize(accessor.count);
+
+			std::size_t idx = 0;
+			fastgltf::iterateAccessor<glm::vec4>(asset, accessor, [&](glm::vec4 index) {
+				currDrawable.tangents[idx++] = index;
+				});
+
+		}
+		else if (attrib.first == "POSITION") {
+			auto& accessor = asset.accessors[attrib.second];
+			currDrawable.pos.resize(accessor.count);
+
+			std::size_t idx = 0;
+			fastgltf::iterateAccessor<glm::vec3>(asset, accessor, [&](glm::vec3 index) {
+				currDrawable.pos[idx++] = index;
+				});
+		}
+		else if (attrib.first == "TEXCOORD_0") {
+			auto& accessor = asset.accessors[attrib.second];
+			currDrawable.texCoords.resize(accessor.count);
+
+			std::size_t idx = 0;
+			fastgltf::iterateAccessor<glm::vec2>(asset, accessor, [&](glm::vec2 index) {
+				currDrawable.texCoords[idx++] = index;
+				});
+		}
+	}
+
+	//indices data
+	if (primitive.indicesAccessor.has_value()) {
+		auto& accessor = asset.accessors[primitive.indicesAccessor.value()];
+		currDrawable.indices.resize(accessor.count);
+
+		std::size_t idx = 0;
+		fastgltf::iterateAccessor<std::uint32_t>(asset, accessor, [&](std::uint32_t index) {
+			currDrawable.indices[idx++] = index;
+			});
+	}
+
+	//texture and material data
+	auto& currMaterial = asset.materials[primitive.materialIndex.value()];
+
+	currDrawable.mat.isAlphaModeMask = currMaterial.alphaMode == fastgltf::AlphaMode::Mask;
+
+	if (currMaterial.pbrData.baseColorTexture.has_value()) {
+		currDrawable.mat.hasBase = currDrawable.mat.baseColorTex.load(
+			asset,
+			currMaterial.pbrData.baseColorTexture.value().textureIndex,
+			TextureType::BASE,
+			currMaterial.pbrData.baseColorFactor,
+			currMaterial.pbrData.baseColorTexture.value().texCoordIndex
+		);
+	}
+
+	if (currMaterial.pbrData.metallicRoughnessTexture.has_value()) {
+		currDrawable.mat.hasMR = currDrawable.mat.metalRoughTex.load(
+			asset,
+			currMaterial.pbrData.metallicRoughnessTexture.value().textureIndex,
+			TextureType::METALLIC_ROUGHNESS,
+			std::array<float, 4>{
+			currMaterial.pbrData.metallicFactor,
+				currMaterial.pbrData.roughnessFactor,
+				0,
+				0
+		},
+			currMaterial.pbrData.metallicRoughnessTexture.value().texCoordIndex
+		);
+	}
+
+	if (currDrawable.mat.hasMR == false) {
+		std::abs(1);
+	}
+
+	if (currMaterial.normalTexture.has_value()) {
+		currDrawable.mat.hasNormal = currDrawable.mat.normalTex.load(
+			asset,
+			currMaterial.normalTexture.value().textureIndex,
+			TextureType::NORMAL,
+			std::array<float, 4>{currMaterial.normalTexture.value().scale},
+			currMaterial.normalTexture.value().texCoordIndex
+		);
+	}
+
+	drawablesMutex.lock();
+
+	drawables.push_back(currDrawable);
+
+	drawablesMutex.unlock();
+}
+
 void GLTFParser::parse_sponza(std::filesystem::path path) {
 	fastgltf::Parser parser;
 
@@ -189,9 +297,6 @@ void GLTFParser::parse_sponza(std::filesystem::path path) {
 
 	fastgltf::GltfDataBuffer data;
 	data.loadFromFile(path);
-
-	uint64_t drawablesData[8] = { 0 };
-	uint16_t alphaModeData[3] = { 0 };
 
 	auto assetRef = parser.loadGltf(&data, path.parent_path(), fastgltf::Options::LoadExternalBuffers | fastgltf::Options::LoadExternalImages);
 
@@ -214,125 +319,25 @@ void GLTFParser::parse_sponza(std::filesystem::path path) {
 	auto& sponzaMainMesh = asset.meshes[sponzaMainNode.meshIndex.value()];
 
 	// ONLY FOR SPONZA RENDERING!!!!
+	auto loadTask = std::async(std::launch::async,
+		[&]() {
+			std::for_each(std::execution::par,
+				sponzaMainMesh.primitives.begin(),
+				sponzaMainMesh.primitives.end(),
+				[&](fastgltf::Primitive primitive) {
+					processPrimitive(primitive, asset);
+				}
+			);
+		}
+	);
+
+	loadTask.wait();
+
+	/*
 	for (int i = 0; i < sponzaMainMesh.primitives.size(); i++) {
-		Drawable currDrawable;
-		std::cerr << "\rloading drawable " << drawablesProcessedCount << "..." << std::flush;
-		//vertex data
-		for (auto attrib : sponzaMainMesh.primitives[i].attributes) {
-			//std::cout << "ACCESSOR DATA:\n" << attrib.first << "	" << attrib.second << "\n";
-			if (attrib.first == "NORMAL") {
-				auto& accessor = asset.accessors[attrib.second];
-				currDrawable.normals.resize(accessor.count);
-
-				std::size_t idx = 0;
-				fastgltf::iterateAccessor<glm::vec3>(asset, accessor, [&](glm::vec3 index) {
-					currDrawable.normals[idx++] = index;
-					});
-			}
-			else if (attrib.first == "TANGENT") {
-				currDrawable.hasTangents = true;
-				auto& accessor = asset.accessors[attrib.second];
-				currDrawable.tangents.resize(accessor.count);
-
-				std::size_t idx = 0;
-				fastgltf::iterateAccessor<glm::vec4>(asset, accessor, [&](glm::vec4 index) {
-					currDrawable.tangents[idx++] = index;
-					});
-
-			}
-			else if (attrib.first == "POSITION") {
-				auto& accessor = asset.accessors[attrib.second];
-				currDrawable.pos.resize(accessor.count);
-
-				std::size_t idx = 0;
-				fastgltf::iterateAccessor<glm::vec3>(asset, accessor, [&](glm::vec3 index) {
-					currDrawable.pos[idx++] = index;
-					});
-			}
-			else if (attrib.first == "TEXCOORD_0") {
-				auto& accessor = asset.accessors[attrib.second];
-				currDrawable.texCoords.resize(accessor.count);
-
-				std::size_t idx = 0;
-				fastgltf::iterateAccessor<glm::vec2>(asset, accessor, [&](glm::vec2 index) {
-					currDrawable.texCoords[idx++] = index;
-					});
-			}
-		}
-
-		//indices data
-		if (sponzaMainMesh.primitives[i].indicesAccessor.has_value()) {
-			auto& accessor = asset.accessors[sponzaMainMesh.primitives[i].indicesAccessor.value()];
-			currDrawable.indices.resize(accessor.count);
-
-			std::size_t idx = 0;
-			fastgltf::iterateAccessor<std::uint32_t>(asset, accessor, [&](std::uint32_t index) {
-				currDrawable.indices[idx++] = index;
-				});
-		}
-
-		//texture and material data
-		auto& currMaterial = asset.materials[sponzaMainMesh.primitives[i].materialIndex.value()];
-
-		currDrawable.mat.isAlphaModeMask = currMaterial.alphaMode == fastgltf::AlphaMode::Mask;
-		alphaModeData[currMaterial.alphaMode == fastgltf::AlphaMode::Blend ? 0 : currMaterial.alphaMode == fastgltf::AlphaMode::Mask ? 1 : 2]++;
-
-		if (currMaterial.pbrData.baseColorTexture.has_value()) {
-			currDrawable.mat.hasBase = currDrawable.mat.baseColorTex.load(
-				asset,
-				currMaterial.pbrData.baseColorTexture.value().textureIndex,
-				TextureType::BASE,
-				currMaterial.pbrData.baseColorFactor,
-				currMaterial.pbrData.baseColorTexture.value().texCoordIndex
-			);
-		}
-
-		if (currMaterial.pbrData.metallicRoughnessTexture.has_value()) {
-			currDrawable.mat.hasMR = currDrawable.mat.metalRoughTex.load(
-				asset,
-				currMaterial.pbrData.metallicRoughnessTexture.value().textureIndex,
-				TextureType::METALLIC_ROUGHNESS,
-				std::array<float, 4>{
-				currMaterial.pbrData.metallicFactor,
-					currMaterial.pbrData.roughnessFactor,
-					0,
-					0
-			},
-				currMaterial.pbrData.metallicRoughnessTexture.value().texCoordIndex
-			);
-		}
-
-		if (currMaterial.normalTexture.has_value()) {
-			currDrawable.mat.hasNormal = currDrawable.mat.normalTex.load(
-				asset,
-				currMaterial.normalTexture.value().textureIndex,
-				TextureType::NORMAL,
-				std::array<float, 4>{currMaterial.normalTexture.value().scale},
-				currMaterial.normalTexture.value().texCoordIndex
-			);
-		}
-
-
-		drawables.push_back(currDrawable);
-		drawablesProcessedCount++;
-
-		const size_t opaqueOffset = 4;
-		const size_t normalsOffset = 2;
-		const size_t mrOffset = 1;
-
-		drawablesData[
-			!currDrawable.mat.isAlphaModeMask ? opaqueOffset : 0 +
-				currDrawable.mat.hasNormal ? normalsOffset : 0 +
-				currDrawable.mat.hasMR ? mrOffset : 0
-		]++;
+		processPrimitive(sponzaMainMesh.primitives[i], asset);
 	}
-	for (int i = 0; i < 8; i++) {
-		std::cout << "\nbase and ";
-		if (i & 1) std::cout << "mr, ";
-		if (i & 2) std::cout << "normal, ";
-		if (i & 4) std::cout << "opaque, ";
-		std::cout << ": " << drawablesData[i] << "\n";
-	}
+	*/
 
 	std::cerr << "\nAll drawables loaded.\n";
 }
