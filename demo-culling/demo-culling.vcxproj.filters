@@ -15,15 +15,21 @@
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="sponza-brute.cpp">
+    <ClCompile Include="demo-culling.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\shaders\sponza-pbr\shaderAll.frag">
+    <None Include="..\shaders\culling\boundingbox.frag">
       <Filter>Source Files</Filter>
     </None>
-    <None Include="..\shaders\sponza-pbr\shaderAll.vert">
+    <None Include="..\shaders\culling\boundingbox.vert">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="..\shaders\culling\model.frag">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="..\shaders\culling\model.vert">
       <Filter>Source Files</Filter>
     </None>
   </ItemGroup>
