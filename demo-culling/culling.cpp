@@ -36,6 +36,8 @@ bool isDebugEnv = true;
 bool isDebugEnv = false;
 #endif
 
+const uint32_t INSTANCE_COUNT = 64;
+
 struct Vertex {
 	glm::vec3 pos;
 	glm::vec2 texCoord;
@@ -63,6 +65,30 @@ struct Vertex {
 		attributeDescriptions[1].offset = offsetof(Vertex, texCoord);
 
 		return attributeDescriptions;
+	}
+};
+
+struct InstanceData {
+	glm::vec3 pos;
+
+	static VkVertexInputBindingDescription getBindingDescription() {
+		VkVertexInputBindingDescription bindingDescription{};
+		bindingDescription.binding = 1;
+		bindingDescription.stride = sizeof(InstanceData);
+		bindingDescription.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
+
+		return bindingDescription;
+	}
+
+	static VkVertexInputAttributeDescription getAttributeDescriptions() {
+		VkVertexInputAttributeDescription attributeDescription{};
+
+		attributeDescription.binding = 1;
+		attributeDescription.location = 2;
+		attributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescription.offset = offsetof(InstanceData, pos);
+
+		return attributeDescription;
 	}
 };
 
@@ -176,6 +202,8 @@ private:
 
 	CommandHelper commHelper;		std::mutex commMutex;
 
+	std::chrono::steady_clock::time_point lastTime;
+
 	const char* hdriPath;
 
 	VkSurfaceKHR surface;
@@ -223,6 +251,11 @@ private:
 	VkDeviceMemory offscreenUniformBufferMemory;
 	void* offscreenUniformBufferMapped;
 
+	VkBuffer instanceBuffer;
+	VkDeviceMemory instanceBufferMemory;
+
+	std::array<InstanceData, INSTANCE_COUNT * INSTANCE_COUNT> instanceGenData;
+
 	std::vector<VkCommandBuffer> commandBuffers;
 	std::vector<VkSemaphore >imageAvailableSemaphores;
 	std::vector<VkSemaphore >renderFinishedSemaphores;
@@ -231,7 +264,7 @@ private:
 
 	bool framebufferResized = false;
 
-	glm::vec3 sponzaScaleMatrix = glm::vec3(0.000800000038);
+	//glm::vec3 sponzaScaleMatrix = glm::vec3(0.000800000038);
 
 	static void framebufferResizeCallback(GLFWwindow* window, int width, int height) {
 		auto app = reinterpret_cast<CullingDemo*>(glfwGetWindowUserPointer(window));
@@ -243,7 +276,7 @@ private:
 		vulkanInit.isDebug = isDebugEnv;
 		vulkanInit.width = WIDTH;
 		vulkanInit.height = HEIGHT;
-		vulkanInit.title = "Culling test - No UI";
+		vulkanInit.title = "Instancing - No UI";
 		vulkanInit.addLayer("VK_LAYER_KHRONOS_validation");
 		vulkanInit.addInstanceExtension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
 		vulkanInit.setFramebufferResizeFunc(framebufferResizeCallback);
@@ -341,7 +374,7 @@ private:
 
 		processDrawables();
 
-		//create bounds render stuff
+		createInstanceBuffers();
 
 		createUniformBuffers();
 		createDescriptorPool();
@@ -432,15 +465,22 @@ private:
 
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
-		auto bindingDescription = Vertex::getBindingDescription();
-		auto attributeDescriptions = Vertex::getAttributeDescriptions();
+		auto vertexBindingDescription = Vertex::getBindingDescription();
+		auto vertexAttributeDescription = Vertex::getAttributeDescriptions();
+
+		auto instanceBindingDescription = InstanceData::getBindingDescription();
+		auto instanceAttributeDescription = InstanceData::getAttributeDescriptions();
+
+		VkVertexInputBindingDescription bindingDescriptions[] = { vertexBindingDescription, instanceBindingDescription };
+		VkVertexInputAttributeDescription attributeDescriptions[] = { vertexAttributeDescription[0], vertexAttributeDescription[1], instanceAttributeDescription};
+		
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-		vertexInputInfo.vertexBindingDescriptionCount = 1;
-		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
-		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+		vertexInputInfo.vertexBindingDescriptionCount = 2;
+		vertexInputInfo.vertexAttributeDescriptionCount = 3;
+		vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions;
+		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions;
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -543,6 +583,8 @@ private:
 		vkDestroyShaderModule(device, vertShader.shaderModule, nullptr);
 		vkDestroyShaderModule(device, fragShader.shaderModule, nullptr);
 
+		/*
+
 		//bounding box pipeline
 		ShaderHelper boundingVertShader, boundingFragShader;
 		boundingVertShader.init("bounding vert", Type::VERT, device);
@@ -586,6 +628,7 @@ private:
 
 		vkDestroyShaderModule(device, boundingVertShader.shaderModule, nullptr);
 		vkDestroyShaderModule(device, boundingFragShader.shaderModule, nullptr);
+		*/
 	}
 
 	VkSampleCountFlagBits getMaxUsableSampleCount() {
@@ -1027,6 +1070,61 @@ private:
 		std::cerr << "\nAll drawables processed.\n";
 	}
 
+	void createInstanceBuffers() {
+		const uint32_t totalInstances = INSTANCE_COUNT * INSTANCE_COUNT;
+		VkDeviceSize bufferSize = sizeof(InstanceData) * totalInstances;
+
+		VkBuffer stagingBuffer;
+		VkDeviceMemory stagingDeviceMemory;
+
+		memHelper.createBuffer(
+			bufferSize,
+			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			stagingBuffer,
+			stagingDeviceMemory,
+			QUEUE_TYPE_GRAPHICS
+		);
+
+		void* stagingPointer;
+		vkMapMemory(device, stagingDeviceMemory, 0, bufferSize, 0, &stagingPointer);
+
+		for (int i = 0; i < totalInstances / INSTANCE_COUNT; i++) {
+			for (int j = 0; j < totalInstances / INSTANCE_COUNT; j++) {
+				int idx = i + j * INSTANCE_COUNT;
+				instanceGenData[idx].pos = glm::vec3( .2f * i, 0.0f, .2f * j );
+				//maybe add scaling data later
+			}
+		}
+
+		memcpy(stagingPointer, instanceGenData.data(), bufferSize);
+
+		vkUnmapMemory(device, stagingDeviceMemory);
+
+		memHelper.createBuffer(
+			bufferSize,
+			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+			instanceBuffer,
+			instanceBufferMemory,
+			QUEUE_TYPE_GRAPHICS
+		);
+
+		VkCommandBuffer commandBuffer = commHelper.beginSingleTimeCommands(commandPool);
+
+		memHelper.copyBuffer(
+			commandBuffer,
+			stagingBuffer,
+			instanceBuffer,
+			bufferSize
+		);
+
+		commHelper.endSingleTimeCommands(commandBuffer, commandPool, graphicsQueue);
+
+		vkFreeMemory(device, stagingDeviceMemory, nullptr);
+		vkDestroyBuffer(device, stagingBuffer, nullptr);
+	}
+
 	void createUniformBuffers() {
 		VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
@@ -1267,31 +1365,25 @@ private:
 
 		VkDeviceSize offsets[] = { 0 };
 
+		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
 
 		//render model
 		for (int i = 0; i < drawableHandles.size(); i++) {
 			VkBuffer vertexBuffers[] = { drawableHandles[i].vertexBuffer };
+			VkBuffer instanceBuffers[] = { instanceBuffer };
 			vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
+			vkCmdBindVertexBuffers(commandBuffer, 1, 1, instanceBuffers, offsets);
 			vkCmdBindIndexBuffer(commandBuffer, drawableHandles[i].indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[(2 * i) + currentFrame], 0, nullptr);
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
-			vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(drawableHandles[i].indices), 1, 0, 0, 0);
+			vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(drawableHandles[i].indices), INSTANCE_COUNT * INSTANCE_COUNT, 0, 0, 0);
 
+			/*
 			vertexBuffers[0] = drawableHandles[i].boundingBoxVertexBuffer;
 			vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
 			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, boundingBoxPipeline);
 			vkCmdDraw(commandBuffer, 3 * 6 * 6, 1, 0, 0);
+			*/
 		}
-
-		/*
-		for (int i = 0; i < specialDrawableHandles.size(); i++) {
-			VkBuffer vertexBuffers[] = { drawableHandles[i].vertexBuffer };
-			vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-			vkCmdBindIndexBuffer(commandBuffer, drawableHandles[i].indexBuffer, 0, VK_INDEX_TYPE_UINT32);
-			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &specialDescriptorSets[(2 * i) + currentFrame], 0, nullptr);
-			vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(drawableHandles[i].indices), 1, 0, 0, 0);
-		}
-		*/
 
 
 		vkCmdEndRendering(commandBuffer);
@@ -1373,8 +1465,10 @@ private:
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
-
-		updateUniformBuffer(currentFrame);
+		
+		auto latestTime = std::chrono::high_resolution_clock::now();
+		updateUniformBuffer(currentFrame, std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count());
+		auto lastTime = latestTime;
 
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1421,13 +1515,13 @@ private:
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	void updateUniformBuffer(uint32_t currentImage) {
-		camera.update();
+	void updateUniformBuffer(uint32_t currentImage, float deltaTime) {
+		camera.update(deltaTime);
 
 		UniformBufferObject ubo{};
-		ubo.model = glm::scale(glm::mat4(1.0f), sponzaScaleMatrix);
+		ubo.model = glm::scale(glm::mat4(1.0f), glm::vec3(1.0));
 		ubo.view = camera.getViewMatrix();
-		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.01f, 10.0f);
+		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.01f, 100.0f);
 		ubo.proj[1][1] *= -1;
 
 		memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
@@ -1460,30 +1554,6 @@ private:
 		//createColorResources();
 		//createDepthResources();
 		//createFramebuffers();
-	}
-
-	bool checkValidationLayerSupport() {
-		uint32_t layerCount = 0;
-		vkEnumerateInstanceLayerProperties(&layerCount, nullptr);
-
-		std::vector<VkLayerProperties> availableLayers(layerCount);
-		vkEnumerateInstanceLayerProperties(&layerCount, availableLayers.data());
-
-		for (const char* layerName : validationlayers) {
-			bool layerFound = true;
-
-			for (const auto& layerProperties : availableLayers) {
-				if (strcmp(layerName, layerProperties.layerName) == 0) {
-					layerFound = true;
-					break;
-				}
-			}
-			if (!layerFound) {
-				return false;
-			}
-		}
-
-		return true;
 	}
 
 	void cleanupSwapChain() {
@@ -1532,6 +1602,9 @@ private:
 			}
 		);
 
+		vkDestroyBuffer(device, instanceBuffer, nullptr);
+		vkFreeMemory(device, instanceBufferMemory, nullptr);
+
 		deleteTask.wait();
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
@@ -1571,7 +1644,7 @@ private:
 int main() {
 	try {
 		GLTFParser sponzaParser;
-		sponzaParser.parse_sponza("../models/Sponza/glTF/Sponza.gltf");
+		sponzaParser.parse("../models/WaterBottle.glb");
 		CullingDemo app(1280, 720, sponzaParser.drawables);
 		app.run();
 	}

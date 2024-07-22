@@ -13,12 +13,16 @@
 
 #include <GLFW/glfw3.h>
 
+#include <iostream>
+
 class Camera {
 public:
 	glm::vec3 velocity;
 	glm::vec3 position;
 	float pitch = 0.f;
 	float yaw = 0.f;
+
+	float scalingFactor = 0.000000002;
 
 	double prevFrameXPos = -1, prevFrameYPos = -1;
 
@@ -30,5 +34,5 @@ public:
 
 	void processGLFWMouseEvent(GLFWwindow* window, double x, double y);
 
-	void update();
+	void update(float deltaTime);
 };

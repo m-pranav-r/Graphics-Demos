@@ -41,6 +41,8 @@ public:
 
 	bool load(fastgltf::Asset& asset, uint64_t textureIndex, TextureType texType, std::array<float, 4> factor, uint64_t texCoordIndex);
 
+	bool load_from_loaded_texture_data(fastgltf::Asset& asset, uint64_t textureIndex, TextureType texType, std::array<float, 4> factor, uint64_t texCoordIndex);
+
 	bool load_from_file(fastgltf::Asset& asset, uint64_t textureIndex, TextureType texType, std::array<float, 4> factor, uint64_t texCoordIndex, std::string parentPath);
 };
 
@@ -48,18 +50,6 @@ class Material {
 public:
 	Texture baseColorTex, metalRoughTex, normalTex, emissiveTex, occlusionTex;
 	bool hasBase = false, hasNormal = false, hasMR = false, hasEmissive = false, hasOcclusion = false, isAlphaModeMask = false;
-};
-
-class Model {
-public:
-	std::vector<std::uint32_t> indices;
-	std::vector<glm::vec3> pos;
-	std::vector<glm::vec3> normals;
-	std::vector<glm::vec4> tangents;
-	std::vector<glm::vec2> texCoords;
-	Material mat;
-	bool hasTangents = false;
-	fastgltf::TRS transformData;
 };
 
 class Drawable {
@@ -78,7 +68,7 @@ class GLTFParser {
 public:
 
 	fastgltf::PrimitiveType renderingMode;
-	Model model;
+
 	std::vector<Drawable> drawables;
 
 	void glTFError(fastgltf::Error error);

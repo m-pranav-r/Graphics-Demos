@@ -38,6 +38,31 @@ bool Texture::load(fastgltf::Asset& asset, uint64_t textureIndex, TextureType te
 		return false;
 	}
 	fastgltf::Image& image = asset.images[asset.textures[textureIndex].imageIndex.value()];
+	fastgltf::sources::BufferView bufferViewView = std::get<fastgltf::sources::BufferView>(image.data);
+	fastgltf::BufferView& bufferView = asset.bufferViews[bufferViewView.bufferViewIndex];
+
+	fastgltf::Buffer& buffer = asset.buffers[bufferView.bufferIndex];
+	auto& byteView = std::get<fastgltf::sources::ByteView>(buffer.data);
+	int requiredChannels = 4;
+	pixels = stbi_load_from_memory((stbi_uc*)(byteView.bytes.data()), static_cast<int>(byteView.bytes.size()), &texWidth, &texHeight, &texChannels, requiredChannels);
+
+	if (!pixels) {
+		throw std::runtime_error("failed to load image into mem!\n");
+	}
+	this->factor = factor;
+	this->type = texType;
+	this->texCoordIndex = texCoordIndex;
+	//std::cout << "... done!\n";
+	return true;
+}
+
+bool Texture::load_from_loaded_texture_data(fastgltf::Asset& asset, uint64_t textureIndex, TextureType texType, std::array<float, 4> factor, uint64_t texCoordIndex) {
+	//std::cout << "trying to load texture of type " << texType;
+	if (!asset.textures[textureIndex].imageIndex.has_value()) {
+		std::cout << "...not found, marking as such.\n";
+		return false;
+	}
+	fastgltf::Image& image = asset.images[asset.textures[textureIndex].imageIndex.value()];
 	fastgltf::sources::Array& dataArray = std::get<fastgltf::sources::Array>(image.data);
 
 	int requiredChannels = 4;
@@ -245,7 +270,7 @@ void GLTFParser::processPrimitive(fastgltf::Primitive &primitive, fastgltf::Asse
 	currDrawable.mat.isAlphaModeMask = currMaterial.alphaMode == fastgltf::AlphaMode::Mask;
 
 	if (currMaterial.pbrData.baseColorTexture.has_value()) {
-		currDrawable.mat.hasBase = currDrawable.mat.baseColorTex.load(
+		currDrawable.mat.hasBase = currDrawable.mat.baseColorTex.load_from_loaded_texture_data(
 			asset,
 			currMaterial.pbrData.baseColorTexture.value().textureIndex,
 			TextureType::BASE,
@@ -255,7 +280,7 @@ void GLTFParser::processPrimitive(fastgltf::Primitive &primitive, fastgltf::Asse
 	}
 
 	if (currMaterial.pbrData.metallicRoughnessTexture.has_value()) {
-		currDrawable.mat.hasMR = currDrawable.mat.metalRoughTex.load(
+		currDrawable.mat.hasMR = currDrawable.mat.metalRoughTex.load_from_loaded_texture_data(
 			asset,
 			currMaterial.pbrData.metallicRoughnessTexture.value().textureIndex,
 			TextureType::METALLIC_ROUGHNESS,
@@ -269,12 +294,8 @@ void GLTFParser::processPrimitive(fastgltf::Primitive &primitive, fastgltf::Asse
 		);
 	}
 
-	if (currDrawable.mat.hasMR == false) {
-		std::abs(1);
-	}
-
 	if (currMaterial.normalTexture.has_value()) {
-		currDrawable.mat.hasNormal = currDrawable.mat.normalTex.load(
+		currDrawable.mat.hasNormal = currDrawable.mat.normalTex.load_from_loaded_texture_data(
 			asset,
 			currMaterial.normalTexture.value().textureIndex,
 			TextureType::NORMAL,
@@ -502,4 +523,6 @@ void GLTFParser::parse(std::filesystem::path path) {
 
 		}
 	}
+
+	drawables.push_back(model);
 }

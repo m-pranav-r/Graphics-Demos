@@ -126,6 +126,7 @@ void DeviceHelper::initDevices()
 	VkPhysicalDeviceFeatures deviceFeatures{};
 	deviceFeatures.samplerAnisotropy = VK_TRUE;
 	deviceFeatures.sampleRateShading = VK_TRUE;
+	deviceFeatures.fillModeNonSolid = VK_TRUE;		//for wireframe rendering
 
 	//also leaving dynamic rendering feature in as default
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamicRenderingFeatures = {

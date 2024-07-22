@@ -13,32 +13,63 @@ glm::mat4 Camera::getRotationMatrix() {
 	return glm::mat4_cast(yawRotation) * glm::mat4_cast(pitchRotation);
 }
 
+inline int keytoArrayElement(int key) {
+	return
+		key == GLFW_KEY_W || key == GLFW_KEY_S ? 2 :
+		key == GLFW_KEY_A || key == GLFW_KEY_D ? 0 :
+		1;
+}
+
+inline int keyToSign(int key) {
+	return
+		key == GLFW_KEY_W || key == GLFW_KEY_A || key == GLFW_KEY_Q ? -1 : 1;
+}
+
 void Camera::processGLFWKeyboardEvent(GLFWwindow* window, int key, int scancode, int action, int mods) {
 	if (action == GLFW_PRESS) {
 		if (key == GLFW_KEY_W) velocity.z = -1;
-		if (key == GLFW_KEY_A) velocity.x = -1;
-		if (key == GLFW_KEY_S) velocity.z = 1;
-		if (key == GLFW_KEY_D) velocity.x = 1;
-		if (key == GLFW_KEY_E) velocity.y = 1;
-		if (key == GLFW_KEY_Q) velocity.y = -1;
-		if (key == GLFW_KEY_ESCAPE) glfwSetWindowShouldClose(window, 1);
+		else if (key == GLFW_KEY_A) velocity.x = -1;
+		else if (key == GLFW_KEY_S) velocity.z = 1;
+		else if (key == GLFW_KEY_D) velocity.x = 1;
+		else if (key == GLFW_KEY_E) velocity.y = 1;
+		else if (key == GLFW_KEY_Q) velocity.y = -1;
+		else if (key == GLFW_KEY_ESCAPE) glfwSetWindowShouldClose(window, 1);
+	}else if (action == GLFW_RELEASE) {
+		if (key == GLFW_KEY_W) velocity.z = 0;
+		else if (key == GLFW_KEY_A) velocity.x = 0;
+		else if (key == GLFW_KEY_S) velocity.z = 0;
+		else if (key == GLFW_KEY_D) velocity.x = 0;
+		else if (key == GLFW_KEY_E) velocity.y = 0;
+		else if (key == GLFW_KEY_Q) velocity.y = 0;
 	}
 
-	if (action == GLFW_RELEASE) {
-		if (key == GLFW_KEY_W) velocity.z = 0;
-		if (key == GLFW_KEY_A) velocity.x = 0;
-		if (key == GLFW_KEY_S) velocity.z = 0;
-		if (key == GLFW_KEY_D) velocity.x = 0;
-		if (key == GLFW_KEY_E) velocity.y = 0;
-		if (key == GLFW_KEY_Q) velocity.y = 0;
+	/*
+	std::cout << "KEYEVENT CALLED:	";
+	switch (action)
+	{
+	case GLFW_PRESS:
+		std::cout << "PRESS\n";
+		break;
+	case GLFW_REPEAT:
+		std::cout << "REPEAT\n";
+		break;
+	case GLFW_RELEASE:
+		std::cout << "RELEASE\n";
+		break;
+	default:
+		break;
 	}
+	velocity[keytoArrayElement(key)] = (action == GLFW_PRESS || action == GLFW_REPEAT) * keyToSign(key);
+	*/
 }
 
 void Camera::processGLFWMouseEvent(GLFWwindow* window, double x, double y) {
+	//std::cout << "MOUSEEVENT CALLED\n";
 	if (prevFrameXPos == -1) {
 		prevFrameXPos = x;
 		prevFrameYPos = y;
 	}
+
 	yaw += (x - prevFrameXPos) / 2000.f;
 	pitch -= (y - prevFrameYPos) / 2000.f;
 
@@ -46,7 +77,7 @@ void Camera::processGLFWMouseEvent(GLFWwindow* window, double x, double y) {
 	prevFrameYPos = y;
 }
 
-void Camera::update() {
+void Camera::update(float deltaTime) {
 	glm::mat4 cameraRotation = getRotationMatrix();
-	position += glm::vec3(cameraRotation * glm::vec4(velocity * 0.005f, 0.f));
+	position += deltaTime * scalingFactor * glm::vec3(cameraRotation * glm::vec4(velocity, 0.f));
 }
