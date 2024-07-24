@@ -50,6 +50,7 @@ void ShaderHelper::compileShaderToSPIRVAndCreateShaderModule()
 		shaderKind = shaderc_shader_kind::shaderc_glsl_fragment_shader;
 		break;
 	default:
+		shaderKind = shaderc_shader_kind::shaderc_glsl_compute_shader;
 		break;
 	}
 

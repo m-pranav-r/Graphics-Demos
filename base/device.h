@@ -13,11 +13,13 @@
 
 #define QUEUE_TYPE_GRAPHICS		static_cast<int>( 1 << 0 )
 #define QUEUE_TYPE_TRANSFER		static_cast<int>( 1 << 1 )
+#define QUEUE_TYPE_COMPUTE		static_cast<int>( 1 << 2 )
 
 struct QueueFamilyIndices {
 	std::optional<uint32_t> presentFamily;
 	std::optional<uint32_t> transferFamily;
 	std::optional<uint32_t> graphicsFamily;
+	std::optional<uint32_t> computeFamily;
 
 	bool isComplete();
 };
@@ -50,10 +52,14 @@ public:
 
 	void getQueues(VkQueue& graphicsQueue, VkQueue& presentQueue, VkQueue& transferQueue);
 
+	void getComputeQueue(VkQueue& computeQueue);
+
 	bool isDebug = false;
 
-	VkInstance instance;	//set instance!!
-	VkSurfaceKHR surface;	//set surface!!
+	VkInstance instance;
+
+	VkSurfaceKHR surface;
+
 private:
 	QueueFamilyIndices findQueueFamilies(VkPhysicalDevice device);
 

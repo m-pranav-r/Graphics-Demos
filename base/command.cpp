@@ -12,7 +12,7 @@ void CommandHelper::createCommandPool(VkCommandPoolCreateFlags flags, int queueT
 	VkCommandPoolCreateInfo poolInfo{};
 	poolInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
 	poolInfo.flags = flags;
-	poolInfo.queueFamilyIndex = QUEUE_TYPE_GRAPHICS == queueType ? primeDeviceIndices.graphicsFamily.value() : primeDeviceIndices.transferFamily.value();
+	poolInfo.queueFamilyIndex = QUEUE_TYPE_GRAPHICS == queueType ? primeDeviceIndices.graphicsFamily.value() : QUEUE_TYPE_TRANSFER == queueType ? primeDeviceIndices.transferFamily.value() : primeDeviceIndices.computeFamily.value();
 
 	if (vkCreateCommandPool(device, &poolInfo, nullptr, &commandPool) != VK_SUCCESS) {
 		throw std::runtime_error("failed to create command pool!");

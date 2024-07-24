@@ -11,7 +11,8 @@
 
 enum Type {
 	VERT = 0,
-	FRAG = 1
+	FRAG = 1,
+	COMP = 2
 };
 
 class ShaderHelper {

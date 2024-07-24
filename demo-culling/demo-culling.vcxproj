@@ -148,8 +148,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\shaders\culling\boundingbox.frag" />
-    <None Include="..\shaders\culling\boundingbox.vert" />
+    <None Include="..\shaders\culling\cull.comp" />
     <None Include="..\shaders\culling\model.frag" />
     <None Include="..\shaders\culling\model.vert" />
   </ItemGroup>

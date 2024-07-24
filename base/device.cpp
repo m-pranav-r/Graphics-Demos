@@ -21,6 +21,11 @@ QueueFamilyIndices DeviceHelper::findQueueFamilies(VkPhysicalDevice device) {
 			indices.transferFamily = i;
 		}
 
+		//force-choosing the queue family that only supports compute
+		if ((queueFamily.queueFlags & VK_QUEUE_COMPUTE_BIT) && !(queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT)) {
+			indices.computeFamily = i;
+		}
+
 		VkBool32 presentSupport = VK_FALSE;
 		vkGetPhysicalDeviceSurfaceSupportKHR(device, i, surface, &presentSupport);
 
@@ -127,6 +132,8 @@ void DeviceHelper::initDevices()
 	deviceFeatures.samplerAnisotropy = VK_TRUE;
 	deviceFeatures.sampleRateShading = VK_TRUE;
 	deviceFeatures.fillModeNonSolid = VK_TRUE;		//for wireframe rendering
+	// todo: make this configurable
+	deviceFeatures.multiDrawIndirect = VK_TRUE;	//force enable for 'demo-culling'
 
 	//also leaving dynamic rendering feature in as default
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamicRenderingFeatures = {
@@ -284,6 +291,11 @@ void DeviceHelper::getQueues(VkQueue& graphicsQueue, VkQueue& presentQueue, VkQu
 	vkGetDeviceQueue(device, primeDeviceIndices.graphicsFamily.value(), 0, &graphicsQueue);
 	vkGetDeviceQueue(device, primeDeviceIndices.presentFamily.value(), 0, &presentQueue);
 	vkGetDeviceQueue(device, primeDeviceIndices.transferFamily.value(), 0, &transferQueue);
+}
+
+void DeviceHelper::getComputeQueue(VkQueue& computeQueue)
+{
+	vkGetDeviceQueue(device, primeDeviceIndices.computeFamily.value(), 0, &computeQueue);
 }
 
 bool DeviceHelper::isDeviceSuitable(VkPhysicalDevice device) {

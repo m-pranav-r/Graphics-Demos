@@ -362,6 +362,8 @@ private:
 
 	bool framebufferResized = false;
 
+	std::chrono::steady_clock::time_point lastTime;
+
 	//Model model;
 
 	glm::vec3 sponzaScaleMatrix = glm::vec3(0.000800000038);
@@ -4473,7 +4475,9 @@ private:
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
-		updateUniformBuffer(currentFrame);
+		auto latestTime = std::chrono::high_resolution_clock::now();
+		updateUniformBuffer(currentFrame, std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count());
+		auto lastTime = latestTime;
 
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -4520,8 +4524,8 @@ private:
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	void updateUniformBuffer(uint32_t currentImage) {
-		camera.update();
+	void updateUniformBuffer(uint32_t currentImage, float deltaTime) {
+		camera.update(deltaTime);
 
 		UniformBufferObject ubo{};
 		ubo.model = glm::scale(glm::mat4(1.0f), sponzaScaleMatrix);

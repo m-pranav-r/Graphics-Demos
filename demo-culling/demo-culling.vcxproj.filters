@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Shaders">
+      <UniqueIdentifier>{f6ad1f0b-f602-48cc-b846-1b29e26c0dfd}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="culling.cpp">
@@ -20,17 +23,14 @@
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\shaders\culling\boundingbox.frag">
-      <Filter>Source Files</Filter>
-    </None>
-    <None Include="..\shaders\culling\boundingbox.vert">
-      <Filter>Source Files</Filter>
-    </None>
     <None Include="..\shaders\culling\model.frag">
-      <Filter>Source Files</Filter>
+      <Filter>Shaders</Filter>
     </None>
     <None Include="..\shaders\culling\model.vert">
-      <Filter>Source Files</Filter>
+      <Filter>Shaders</Filter>
+    </None>
+    <None Include="..\shaders\culling\cull.comp">
+      <Filter>Shaders</Filter>
     </None>
   </ItemGroup>
 </Project>
