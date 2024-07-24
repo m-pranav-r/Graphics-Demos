@@ -32,23 +32,21 @@ layout(local_size_x = 16) in;
 bool frustumCheck(vec4 pos){
 	for(int i = 0; i < 6; i++){
 		if(dot(pos, ubo.frustum[i]) + 1.0 < 0.0){
-			return true;
+			return false;
 		}
-		return false;
+		return true;
 	}
 }
 
 void main(){
 	uint idx = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x;
 
-	vec4 pos = vec4(instances[3].pos.xyz, 1.0);
+	vec4 pos = vec4(instances[idx].pos.xyz, 1.0);
 	
 	if(frustumCheck(pos)){
 		indirectDraws[idx].instanceCount = 1;
 	} else {
 		indirectDraws[idx].instanceCount = 0;
 	}
-
-	indirectDraws[idx].instanceCount = 1;
 	
 }

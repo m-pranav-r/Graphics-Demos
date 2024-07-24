@@ -35,4 +35,6 @@ public:
 	void processGLFWMouseEvent(GLFWwindow* window, double x, double y);
 
 	void update(float deltaTime);
+
+	bool freezeFurstum = false;
 };

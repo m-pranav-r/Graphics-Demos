@@ -1912,7 +1912,7 @@ private:
 		ubo.view = camera.getViewMatrix();
 		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.01f, 100.0f);
 		ubo.proj[1][1] *= -1;
-		getFrustumFromCamera(ubo, ubo.proj * ubo.model);
+		if(!camera.freezeFurstum) getFrustumFromCamera(ubo, ubo.proj * ubo.model);
 
 		memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
 		//memcpy(uniformBuffersMapped[1 - currentFrame], &ubo, sizeof(ubo));
