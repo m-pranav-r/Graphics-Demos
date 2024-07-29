@@ -10,11 +10,12 @@ layout(set = 0, binding = 0) uniform UniformBufferObject{
 	vec4 frustum[6];
 } ubo;
 
-layout (location = 2) in vec3 Instpos;
+layout (location = 2) in vec3 InstPos;
+layout (location = 3) in float InstScale;
 
 layout(location = 1) out vec2 fragTexCoord;
 
 void main(){
-	gl_Position = ubo.proj * ubo.view * ubo.model * vec4(pos + Instpos, 1.0);
+	gl_Position = ubo.proj * ubo.view * ubo.model * vec4(pos + InstPos, 1.0);
 	fragTexCoord = texCoord;
 }

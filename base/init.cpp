@@ -20,10 +20,11 @@ void Init::init() {
 	glfwSetWindowUserPointer(window, this);
 	glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 
-	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
-	glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 	glfwSetKeyCallback(window, keyCallback);
 	glfwSetCursorPosCallback(window, cursorPositionCallback);
+	glfwSetMouseButtonCallback(window, mouseButtonCallback);
+	glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+	glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
 	//instance creation
 	if (isDebug && !checkValidationLayerSupport()) {
@@ -120,6 +121,11 @@ void Init::setFramebufferResizeFunc(GLFWframebuffersizefun func)
 void Init::setCursorCallback(GLFWcursorposfun func)
 {
 	cursorPositionCallback = func;
+}
+
+void Init::setMouseButtonCallback(GLFWmousebuttonfun func)
+{
+	mouseButtonCallback = func;
 }
 
 void Init::setKeyboardCallback(GLFWkeyfun func)

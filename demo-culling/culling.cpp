@@ -18,17 +18,9 @@
 #include <glm/gtx/quaternion.hpp>
 #endif
 
-#include <chrono>
-#include <cstdlib>
-#include <set>
-#include <optional>
-#include <cstdint>
-#include <limits>
-#include <algorithm>
-#include <fstream>
-#include <array>
-#include <unordered_map>
-
+#include "imgui/imgui.h"
+#include "imgui/imgui_impl_glfw.h"
+#include "imgui/imgui_impl_vulkan.h"
 
 #ifdef _DEBUG
 bool isDebugEnv = true;
@@ -138,6 +130,11 @@ struct DrawableHandle {
 	VkDeviceMemory boundingBoxVertexBufferMemory;
 };
 
+struct {
+	bool focusOnApp = true;
+	bool freezeFrustum = false;
+} controls;
+
 Camera camera;
 
 class CullingDemo {
@@ -164,9 +161,7 @@ private:
 
 	CommandHelper commHelper;		std::mutex commMutex;
 
-	std::chrono::steady_clock::time_point lastTime;
-
-	const char* hdriPath;
+	std::chrono::steady_clock::time_point lastTime = std::chrono::high_resolution_clock::now();
 
 	VkSurfaceKHR surface;
 	GLFWwindow* window;
@@ -259,8 +254,38 @@ private:
 		vulkanInit.addLayer("VK_LAYER_KHRONOS_validation");
 		vulkanInit.addInstanceExtension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
 		vulkanInit.setFramebufferResizeFunc(framebufferResizeCallback);
-		vulkanInit.setCursorCallback([](GLFWwindow* window, double x, double y) { camera.processGLFWMouseEvent(window, x, y); });
-		vulkanInit.setKeyboardCallback([](GLFWwindow* window, int key, int scancode, int action, int mods) {camera.processGLFWKeyboardEvent(window, key, scancode, action, mods); });
+		vulkanInit.setCursorCallback(
+			[](GLFWwindow* window, double x, double y) {
+				ImGuiIO& io = ImGui::GetIO();
+				if(controls.focusOnApp) camera.processGLFWMouseEvent(window, x, y);
+			} 
+		);
+		vulkanInit.setMouseButtonCallback(
+			[](GLFWwindow* window, int button, int action, int mods) {
+				ImGuiIO& io = ImGui::GetIO();
+				io.AddMouseButtonEvent(button, action == GLFW_PRESS);
+				if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+					if (io.WantCaptureMouse || controls.focusOnApp) {
+						io.ConfigFlags |= ImGuiConfigFlags_NavEnableSetMousePos;
+						io.ConfigFlags &= ~ImGuiConfigFlags_NoMouse;
+						glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_NORMAL);
+						glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_FALSE);
+						controls.focusOnApp = false;
+					} else {
+						io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableSetMousePos;
+						io.ConfigFlags |= ImGuiConfigFlags_NoMouse;
+						glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
+						glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
+						controls.focusOnApp = true;
+					}
+				}
+			}
+		);
+		vulkanInit.setKeyboardCallback(
+			[](GLFWwindow* window, int key, int scancode, int action, int mods) {
+				camera.processGLFWKeyboardEvent(window, key, scancode, action, mods); 
+			}
+		);
 		vulkanInit.init();
 
 		//set camera stuff here
@@ -268,6 +293,7 @@ private:
 		camera.position = glm::vec3(0.f);
 		camera.pitch = 0;
 		camera.yaw = 0;
+		camera.scalingFactor = 10;
 
 		instance = vulkanInit.getInstance();
 		window = vulkanInit.getWindow();
@@ -315,8 +341,6 @@ private:
 			transferPool
 		);
 
-		//createColorResources();
-
 		memHelper.createImage(
 			swapChainExtent.width,
 			swapChainExtent.height,
@@ -360,6 +384,7 @@ private:
 		createDescriptorPool();
 		createDescriptorSets();
 
+		setupUI();
 		setupCompute();
 
 		createCommandBuffers();
@@ -1053,6 +1078,49 @@ private:
 		std::cerr << "\nAll drawables processed.\n";
 	}
 
+	static void imgui_check_vk_result(VkResult err)
+	{
+		if (err == 0)
+			return;
+		fprintf(stderr, "[vulkan] Error: VkResult = %d\n", err);
+		if (err < 0)
+			abort();
+	}
+
+	void setupUI() {
+		IMGUI_CHECKVERSION();
+		ImGui::CreateContext();
+		ImGui::StyleColorsDark();
+		ImGuiIO& io = ImGui::GetIO(); (void)io;
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+		io.ConfigFlags |= ImGuiConfigFlags_NavEnableSetMousePos;
+
+		VkPipelineRenderingCreateInfoKHR pipelineRenderingCreateInfo = {
+			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
+			.colorAttachmentCount = 1,
+			.pColorAttachmentFormats = &swapChainImageFormat,
+			.depthAttachmentFormat = deviceHelper.findDepthFormat()
+		};
+
+		ImGui_ImplGlfw_InitForVulkan(window, true);
+		ImGui_ImplVulkan_InitInfo uiInfo{};
+		uiInfo.Instance = instance;
+		uiInfo.PhysicalDevice = physicalDevice;
+		uiInfo.Device = device;
+		uiInfo.QueueFamily = deviceHelper.getQueueFamilyIndices().graphicsFamily.value();
+		uiInfo.Queue = graphicsQueue;
+		uiInfo.PipelineCache = nullptr;
+		uiInfo.DescriptorPool = descriptorPool;
+		uiInfo.UseDynamicRendering = true;
+		uiInfo.Subpass = 0;
+		uiInfo.MinImageCount = 2;
+		uiInfo.ImageCount = 2;
+		uiInfo.Allocator = nullptr;
+		uiInfo.PipelineRenderingCreateInfo = pipelineRenderingCreateInfo;
+		uiInfo.CheckVkResultFn = imgui_check_vk_result;
+		ImGui_ImplVulkan_Init(&uiInfo);
+	}
+
 	void createInstanceBuffers() {
 		const uint32_t totalInstances = INSTANCE_COUNT * INSTANCE_COUNT * INSTANCE_COUNT;
 		instanceBufferSize = sizeof(InstanceData) * totalInstances;
@@ -1245,6 +1313,7 @@ private:
 		VkDescriptorPoolCreateInfo poolInfo{};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		poolInfo.pPoolSizes = poolSizes.data();
+		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 		poolInfo.poolSizeCount = 2;
 		poolInfo.maxSets = 300;
 
@@ -1742,6 +1811,7 @@ private:
 			);
 		}
 
+		recordUI(commandBuffer);
 
 		vkCmdEndRendering(commandBuffer);
 
@@ -1845,7 +1915,7 @@ private:
 		
 		auto latestTime = std::chrono::high_resolution_clock::now();
 		updateUniformBuffer(currentFrame, std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count());
-		auto lastTime = latestTime;
+		lastTime = latestTime;
 
 		VkSubmitInfo computeSubmitInfo{};
 		computeSubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1906,10 +1976,34 @@ private:
 		}
 
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
-
 		memcpy(&totalDrawsThisFrame, computeStatsMapped, computeStatsBufferSize);
-		std::cerr << "Total submits: " << INSTANCE_COUNT * INSTANCE_COUNT * INSTANCE_COUNT << "\t"
-					<< "Total draws: " << totalDrawsThisFrame << "\r" << std::flush;
+	}
+
+	void recordUI(VkCommandBuffer commandBuffer) {
+		ImGui_ImplVulkan_NewFrame();
+		ImGui_ImplGlfw_NewFrame();
+		ImGui::NewFrame();
+
+		/*
+		ImGui::ShowDemoWindow();
+		*/
+
+		//add ui objects
+		ImGui::Begin("Demo - Culling");
+		
+			ImGui::Text("Total submits: %i", INSTANCE_COUNT * INSTANCE_COUNT * INSTANCE_COUNT);
+			ImGui::Text("Total draws: %i", totalDrawsThisFrame);
+			ImGui::Checkbox("Freeze Frustum", &controls.freezeFrustum);
+			if (ImGui::Button("Exit"))
+				glfwSetWindowShouldClose(window, true);
+
+		ImGui::End();
+
+
+		ImGui::Render();
+		ImDrawData* drawData = ImGui::GetDrawData();
+		//render using the data provided in drawData
+		ImGui_ImplVulkan_RenderDrawData(drawData, commandBuffer);
 	}
 
 	void updateFrustum(UniformBufferObject& ubo, glm::mat4 matrix)
@@ -1959,7 +2053,7 @@ private:
 		ubo.view = camera.getViewMatrix();
 		ubo.proj = glm::perspective(glm::radians(60.0f), (float)swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 512.0f);
 		ubo.proj[1][1] *= -1;
-		if(!camera.freezeFurstum) updateFrustum(ubo, ubo.proj * ubo.view);
+		if(!controls.freezeFrustum) updateFrustum(ubo, ubo.proj * ubo.view);
 		memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
 	}
 
@@ -2063,6 +2157,10 @@ private:
 		);
 
 		cleanupCompute();
+
+		ImGui_ImplVulkan_Shutdown();
+		ImGui_ImplGlfw_Shutdown();
+		ImGui::DestroyContext();
 
 		vkDestroyBuffer(device, instanceBuffer, nullptr);
 		vkFreeMemory(device, instanceBufferMemory, nullptr);

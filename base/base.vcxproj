@@ -141,9 +141,10 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
-      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\VulkanSDK\1.3.283.0\Include;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glm;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\include;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\pranav\Documents\Visual Studio 2022\Libraries\shaderc\include;C:\VulkanSDK\1.3.283.0\Include;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glm;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\include;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>
@@ -153,13 +154,22 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <Lib>
-      <AdditionalLibraryDirectories>C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\lib-vc2022;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>C:\VulkanSDK\1.3.283.0\Lib;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\shaderc\lib\built\Release;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\gen\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>fastgltf.lib; shaderc_combined.lib;</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="camera.h" />
     <ClInclude Include="command.h" />
     <ClInclude Include="device.h" />
+    <ClInclude Include="imgui\imconfig.h" />
+    <ClInclude Include="imgui\imgui.h" />
+    <ClInclude Include="imgui\imgui_impl_glfw.h" />
+    <ClInclude Include="imgui\imgui_impl_vulkan.h" />
+    <ClInclude Include="imgui\imgui_internal.h" />
+    <ClInclude Include="imgui\imstb_rectpack.h" />
+    <ClInclude Include="imgui\imstb_textedit.h" />
+    <ClInclude Include="imgui\imstb_truetype.h" />
     <ClInclude Include="init.h" />
     <ClInclude Include="memory.h" />
     <ClInclude Include="parser.h" />
@@ -169,6 +179,13 @@
     <ClCompile Include="camera.cpp" />
     <ClCompile Include="command.cpp" />
     <ClCompile Include="device.cpp" />
+    <ClCompile Include="imgui\imgui.cpp" />
+    <ClCompile Include="imgui\imgui_demo.cpp" />
+    <ClCompile Include="imgui\imgui_draw.cpp" />
+    <ClCompile Include="imgui\imgui_impl_glfw.cpp" />
+    <ClCompile Include="imgui\imgui_impl_vulkan.cpp" />
+    <ClCompile Include="imgui\imgui_tables.cpp" />
+    <ClCompile Include="imgui\imgui_widgets.cpp" />
     <ClCompile Include="init.cpp" />
     <ClCompile Include="memory.cpp" />
     <ClCompile Include="parser.cpp" />

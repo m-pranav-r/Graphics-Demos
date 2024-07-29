@@ -33,6 +33,8 @@ public:
 
 	void setCursorCallback(GLFWcursorposfun func);
 
+	void setMouseButtonCallback(GLFWmousebuttonfun func);
+
 	void setKeyboardCallback(GLFWkeyfun func);
 
 	void destroy();
@@ -69,5 +71,6 @@ private:
 	GLFWwindow* window;
 	GLFWframebuffersizefun framebufferResizeCallback;
 	GLFWcursorposfun cursorPositionCallback;
+	GLFWmousebuttonfun mouseButtonCallback;
 	GLFWkeyfun keyCallback;
 };

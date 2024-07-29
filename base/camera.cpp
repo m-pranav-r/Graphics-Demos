@@ -34,7 +34,6 @@ void Camera::processGLFWKeyboardEvent(GLFWwindow* window, int key, int scancode,
 		else if (key == GLFW_KEY_E) velocity.y = 1;
 		else if (key == GLFW_KEY_Q) velocity.y = -1;
 		else if (key == GLFW_KEY_ESCAPE) glfwSetWindowShouldClose(window, 1);
-		else if (key == GLFW_KEY_F) freezeFurstum = true;
 	}else if (action == GLFW_RELEASE) {
 		if (key == GLFW_KEY_W) velocity.z = 0;
 		else if (key == GLFW_KEY_A) velocity.x = 0;
@@ -42,7 +41,6 @@ void Camera::processGLFWKeyboardEvent(GLFWwindow* window, int key, int scancode,
 		else if (key == GLFW_KEY_D) velocity.x = 0;
 		else if (key == GLFW_KEY_E) velocity.y = 0;
 		else if (key == GLFW_KEY_Q) velocity.y = 0;
-		else if (key == GLFW_KEY_U) freezeFurstum = false;
 	}
 }
 
