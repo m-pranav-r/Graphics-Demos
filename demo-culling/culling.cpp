@@ -135,6 +135,22 @@ struct {
 	bool freezeFrustum = false;
 } controls;
 
+#define FRAMETIME_GRAPH_SIZE 120
+
+struct {
+	float frametimes[FRAMETIME_GRAPH_SIZE] = { 99.0f };// = 0.0f;
+	float minFrametime = 0.0f;
+	float maxFrametime = 0.0f;
+	uint16_t currFrame = 0;
+
+	void updateFrametime(float frametime) {
+		frametimes[currFrame++] = frametime;
+		minFrametime = frametime < minFrametime ? frametime : minFrametime;
+		maxFrametime = frametime > maxFrametime ? frametime : maxFrametime;
+		currFrame %= FRAMETIME_GRAPH_SIZE;
+	}
+} stats;
+
 Camera camera;
 
 class CullingDemo {
@@ -250,7 +266,7 @@ private:
 		vulkanInit.isDebug = isDebugEnv;
 		vulkanInit.width = WIDTH;
 		vulkanInit.height = HEIGHT;
-		vulkanInit.title = "Instancing - No UI";
+		vulkanInit.title = "Compute Culling";
 		vulkanInit.addLayer("VK_LAYER_KHRONOS_validation");
 		vulkanInit.addInstanceExtension(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
 		vulkanInit.setFramebufferResizeFunc(framebufferResizeCallback);
@@ -1681,7 +1697,7 @@ private:
 		}
 
 		std::array<VkClearValue, 2>clearValues{};
-		clearValues[0].color = { {0.5f, 0.5f, 0.5f, 1.0f} };
+		clearValues[0].color = { {1.0f, 1.0f, 1.0f, 1.0f} };
 		clearValues[1].depthStencil = { 1.0f, 0 };
 
 		VkRenderingAttachmentInfoKHR colorAttachment = {
@@ -1993,6 +2009,12 @@ private:
 		
 			ImGui::Text("Total submits: %i", INSTANCE_COUNT * INSTANCE_COUNT * INSTANCE_COUNT);
 			ImGui::Text("Total draws: %i", totalDrawsThisFrame);
+			float graphValuesAveraged = 0.0f;
+			for (int i = 0; i < FRAMETIME_GRAPH_SIZE; i++) {
+				graphValuesAveraged += stats.frametimes[i];
+			}
+			//ImGui::PlotLines("Frametime Graph", graphValues, FRAMETIME_GRAPH_SIZE);
+			ImGui::Text("Avg Frametime (120 frames): %f ms", graphValuesAveraged / FRAMETIME_GRAPH_SIZE);
 			ImGui::Checkbox("Freeze Frustum", &controls.freezeFrustum);
 			if (ImGui::Button("Exit"))
 				glfwSetWindowShouldClose(window, true);
@@ -2059,8 +2081,12 @@ private:
 
 	void mainLoop() {
 		while (!glfwWindowShouldClose(window)) {
+			auto start = std::chrono::system_clock::now();
 			glfwPollEvents();
 			drawFrame();
+			auto end = std::chrono::system_clock::now();
+			auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+			stats.updateFrametime(elapsed.count() / 1000.f);
 		}
 
 		vkDeviceWaitIdle(device);
