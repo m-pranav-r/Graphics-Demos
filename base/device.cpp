@@ -127,12 +127,12 @@ void DeviceHelper::initDevices()
 	};
 	*/
 
-	//anisotropy on by default
+	// todo: make this configurable
 	VkPhysicalDeviceFeatures deviceFeatures{};
+	//anisotropy on by default
 	deviceFeatures.samplerAnisotropy = VK_TRUE;
 	deviceFeatures.sampleRateShading = VK_TRUE;
 	deviceFeatures.fillModeNonSolid = VK_TRUE;		//for wireframe rendering
-	// todo: make this configurable
 	deviceFeatures.multiDrawIndirect = VK_TRUE;	//force enable for 'demo-culling'
 
 	//also leaving dynamic rendering feature in as default

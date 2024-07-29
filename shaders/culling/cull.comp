@@ -2,6 +2,7 @@
 
 struct InstanceData{
 	vec3 pos;
+	float scale;
 };
 
 layout(binding = 0, std140) buffer Instances{
@@ -16,7 +17,7 @@ struct IndexedInstanceCommand{
 	uint firstInstance;
 };
 
-layout(binding = 1, std430) writeonly buffer IndirectDraws{
+layout(binding = 1, std430) buffer IndirectDraws{
 	IndexedInstanceCommand indirectDraws[];
 };
 
@@ -27,6 +28,10 @@ layout(binding = 2) uniform UBO {
 	vec4 frustum[6];
 } ubo;
 
+layout(binding = 3) buffer ComputeStats{
+	uint drawCount;
+} computeStats;
+
 layout(local_size_x = 16) in;
 
 bool frustumCheck(vec4 pos){
@@ -34,19 +39,19 @@ bool frustumCheck(vec4 pos){
 		if(dot(pos, ubo.frustum[i]) + 1.0 < 0.0){
 			return false;
 		}
-		return true;
 	}
+	return true;
 }
 
 void main(){
 	uint idx = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * gl_NumWorkGroups.x * gl_WorkGroupSize.x;
-
+	
 	vec4 pos = vec4(instances[idx].pos.xyz, 1.0);
 	
 	if(frustumCheck(pos)){
 		indirectDraws[idx].instanceCount = 1;
+		atomicAdd(computeStats.drawCount, 1);
 	} else {
 		indirectDraws[idx].instanceCount = 0;
 	}
-	
 }

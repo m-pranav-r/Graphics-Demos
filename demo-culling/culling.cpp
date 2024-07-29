@@ -70,6 +70,7 @@ struct Vertex {
 
 struct InstanceData {
 	glm::vec3 pos;
+	float scale;
 
 	static VkVertexInputBindingDescription getBindingDescription() {
 		VkVertexInputBindingDescription bindingDescription{};
@@ -80,15 +81,20 @@ struct InstanceData {
 		return bindingDescription;
 	}
 
-	static VkVertexInputAttributeDescription getAttributeDescriptions() {
-		VkVertexInputAttributeDescription attributeDescription{};
+	static std::array<VkVertexInputAttributeDescription, 2> getAttributeDescriptions() {
+		std::array<VkVertexInputAttributeDescription, 2> attributeDescriptions{};
 
-		attributeDescription.binding = 1;
-		attributeDescription.location = 2;
-		attributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
-		attributeDescription.offset = offsetof(InstanceData, pos);
+		attributeDescriptions[0].binding = 1;
+		attributeDescriptions[0].location = 2;
+		attributeDescriptions[0].format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescriptions[0].offset = offsetof(InstanceData, pos);
 
-		return attributeDescription;
+		attributeDescriptions[1].binding = 1;
+		attributeDescriptions[1].location = 3;
+		attributeDescriptions[1].format = VK_FORMAT_R32_SFLOAT;
+		attributeDescriptions[1].offset = offsetof(InstanceData, scale);
+
+		return attributeDescriptions;
 	}
 };
 
@@ -204,11 +210,12 @@ private:
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
 
+	UniformBufferObject ubo{};
 	VkBuffer offscreenUniformBuffer;
 	VkDeviceMemory offscreenUniformBufferMemory;
 	void* offscreenUniformBufferMapped;
 
-	VkBuffer instanceBuffer;
+	VkBuffer instanceBuffer;		VkDeviceSize instanceBufferSize;
 	VkDeviceMemory instanceBufferMemory;
 
 	std::vector<InstanceData> instanceGenData;
@@ -216,6 +223,9 @@ private:
 
 	VkBuffer indirectCommandBuffer;		VkDeviceSize indirectCommandBufferSize;
 	VkDeviceMemory indirectCommandMemory;
+
+	VkBuffer computeStatsBuffer;	VkDeviceSize computeStatsBufferSize;
+	VkDeviceMemory computeStatsMemory; void* computeStatsMapped;	uint32_t totalDrawsThisFrame;
 
 	VkDescriptorSetLayout computeDescLayout;
 	VkDescriptorSet computeDescSet;
@@ -445,13 +455,13 @@ private:
 		auto instanceAttributeDescription = InstanceData::getAttributeDescriptions();
 
 		VkVertexInputBindingDescription bindingDescriptions[] = { vertexBindingDescription, instanceBindingDescription };
-		VkVertexInputAttributeDescription attributeDescriptions[] = { vertexAttributeDescription[0], vertexAttributeDescription[1], instanceAttributeDescription};
+		VkVertexInputAttributeDescription attributeDescriptions[] = { vertexAttributeDescription[0], vertexAttributeDescription[1], instanceAttributeDescription[0], instanceAttributeDescription[1]};
 		
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 		vertexInputInfo.vertexBindingDescriptionCount = 2;
-		vertexInputInfo.vertexAttributeDescriptionCount = 3;
+		vertexInputInfo.vertexAttributeDescriptionCount = 4;
 		vertexInputInfo.pVertexBindingDescriptions = bindingDescriptions;
 		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions;
 
@@ -1045,13 +1055,13 @@ private:
 
 	void createInstanceBuffers() {
 		const uint32_t totalInstances = INSTANCE_COUNT * INSTANCE_COUNT * INSTANCE_COUNT;
-		VkDeviceSize bufferSize = sizeof(InstanceData) * totalInstances;
+		instanceBufferSize = sizeof(InstanceData) * totalInstances;
 
 		VkBuffer stagingBuffer;
 		VkDeviceMemory stagingDeviceMemory;
 
 		memHelper.createBuffer(
-			bufferSize,
+			instanceBufferSize,
 			VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 			stagingBuffer,
@@ -1060,25 +1070,25 @@ private:
 		);
 
 		void* stagingPointer;
-		vkMapMemory(device, stagingDeviceMemory, 0, bufferSize, 0, &stagingPointer);
+		vkMapMemory(device, stagingDeviceMemory, 0, instanceBufferSize, 0, &stagingPointer);
 		instanceGenData.resize(INSTANCE_COUNT * INSTANCE_COUNT * INSTANCE_COUNT);
 		for (int i = 0; i < INSTANCE_COUNT; i++) {
 			for (int j = 0; j < INSTANCE_COUNT; j++) {
 				for (int k = 0; k < INSTANCE_COUNT; k++) {
 
 					int idx = i + j * INSTANCE_COUNT + k * INSTANCE_COUNT * INSTANCE_COUNT;
-					instanceGenData[idx].pos = glm::vec3( i, k, j ) - glm::vec3(INSTANCE_COUNT / 2);
+					instanceGenData[idx].pos = glm::vec3( (float)i, (float)j, (float)k ) - glm::vec3((float)INSTANCE_COUNT / 2.0f);
 					//maybe add scaling data later
 				}
 			}
 		}
 
-		memcpy(stagingPointer, instanceGenData.data(), bufferSize);
+		memcpy(stagingPointer, instanceGenData.data(), instanceBufferSize);
 
 		vkUnmapMemory(device, stagingDeviceMemory);
 
 		memHelper.createBuffer(
-			bufferSize,
+			instanceBufferSize,
 			VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			instanceBuffer,
@@ -1092,7 +1102,7 @@ private:
 			commandBuffer,
 			stagingBuffer,
 			instanceBuffer,
-			bufferSize
+			instanceBufferSize
 		);
 
 		commHelper.endSingleTimeCommands(commandBuffer, commandPool, graphicsQueue);
@@ -1112,6 +1122,7 @@ private:
 					indirectCommands[idx].firstInstance = idx;
 					indirectCommands[idx].firstIndex = 0;
 					indirectCommands[idx].indexCount = 13530;
+					indirectCommands[idx].instanceCount = 1;
 				}
 			}
 		}
@@ -1180,6 +1191,22 @@ private:
 
 		vkFreeMemory(device, stagingMemory, nullptr);
 		vkDestroyBuffer(device, stagingBuffer, nullptr);
+
+		computeStatsBufferSize = sizeof(uint32_t);
+
+		memHelper.createBuffer(
+			computeStatsBufferSize,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+			VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+			computeStatsBuffer,
+			computeStatsMemory,
+			QUEUE_TYPE_COMPUTE
+		);
+
+		vkMapMemory(device, computeStatsMemory, 0, computeStatsBufferSize, 0, &computeStatsMapped);
+		if (computeStatsMapped == nullptr) {
+			throw std::runtime_error("failed to map compute stats buffer!");
+		}
 	}
 
 	void createUniformBuffers() {
@@ -1300,15 +1327,22 @@ private:
 		uboInputBufferBinding.descriptorCount = 1;
 		uboInputBufferBinding.binding = 2;
 
-		std::array<VkDescriptorSetLayoutBinding, 3> computeSetLayoutBindings = {
+		VkDescriptorSetLayoutBinding statsOutputBufferBinding;
+		statsOutputBufferBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		statsOutputBufferBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+		statsOutputBufferBinding.descriptorCount = 1;
+		statsOutputBufferBinding.binding = 3;
+
+		std::array<VkDescriptorSetLayoutBinding, 4> computeSetLayoutBindings = {
 			instanceInputBufferBinding,
 			indirectCommandOutputBufferBinding,
-			uboInputBufferBinding
+			uboInputBufferBinding,
+			statsOutputBufferBinding
 		};
 
 		VkDescriptorSetLayoutCreateInfo computeLayout = {
 			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-			.bindingCount = 3,
+			.bindingCount = 4,
 			.pBindings = computeSetLayoutBindings.data()
 		};
 
@@ -1343,7 +1377,7 @@ private:
 		VkDescriptorBufferInfo instanceInputBufferInfo;
 		instanceInputBufferInfo.buffer = instanceBuffer;
 		instanceInputBufferInfo.offset = 0;
-		instanceInputBufferInfo.range = sizeof(InstanceData);
+		instanceInputBufferInfo.range = instanceBufferSize;
 
 		VkDescriptorBufferInfo indirectCommandBufferInfo;
 		indirectCommandBufferInfo.buffer = indirectCommandBuffer;
@@ -1355,7 +1389,12 @@ private:
 		uboBufferInfo.offset = 0;
 		uboBufferInfo.range = sizeof(UniformBufferObject);
 
-		std::array< VkWriteDescriptorSet, 3> compDescWrites{};
+		VkDescriptorBufferInfo statsBufferInfo;
+		statsBufferInfo.buffer = computeStatsBuffer;
+		statsBufferInfo.offset = 0;
+		statsBufferInfo.range = computeStatsBufferSize;
+
+		std::array< VkWriteDescriptorSet, 4> compDescWrites{};
 		
 		compDescWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 		compDescWrites[0].dstSet = computeDescSet;
@@ -1381,7 +1420,15 @@ private:
 		compDescWrites[2].descriptorCount = 1;
 		compDescWrites[2].pBufferInfo = &uboBufferInfo;
 
-		vkUpdateDescriptorSets(device, 3, compDescWrites.data(), 0, nullptr);
+		compDescWrites[3].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		compDescWrites[3].dstSet = computeDescSet;
+		compDescWrites[3].dstBinding = 3;
+		compDescWrites[3].dstArrayElement = 0;
+		compDescWrites[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		compDescWrites[3].descriptorCount = 1;
+		compDescWrites[3].pBufferInfo = &statsBufferInfo;
+
+		vkUpdateDescriptorSets(device, 4, compDescWrites.data(), 0, nullptr);
 
 		ShaderHelper computeShader;
 		computeShader.init("compute", Type::COMP, device);
@@ -1405,6 +1452,8 @@ private:
 		if (result != VK_SUCCESS) {
 			throw std::runtime_error("failed to create compute pipeline!");
 		}
+
+		vkDestroyShaderModule(device, computeShader.shaderModule, nullptr);
 
 		commHelper.createCommandPool(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, QUEUE_TYPE_COMPUTE, computePool);
 		
@@ -1470,6 +1519,24 @@ private:
 
 		vkCmdBindPipeline(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipeline);
 		vkCmdBindDescriptorSets(computeCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, computePipelineLayout, 0, 1, &computeDescSet, 0, 0);
+
+		vkCmdFillBuffer(computeCommandBuffer, computeStatsBuffer, 0, computeStatsBufferSize, 0);
+
+		VkMemoryBarrier statsMemoryBarrier{};
+		statsMemoryBarrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+		statsMemoryBarrier.pNext = nullptr;
+		statsMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		statsMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		vkCmdPipelineBarrier(
+			computeCommandBuffer,
+			VK_PIPELINE_STAGE_TRANSFER_BIT,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+			0,
+			1, &statsMemoryBarrier,
+			0, nullptr,
+			0, nullptr
+		);
 
 		vkCmdDispatch(computeCommandBuffer, INSTANCE_COUNT * INSTANCE_COUNT * INSTANCE_COUNT / 16, 1, 1);
 		
@@ -1654,17 +1721,6 @@ private:
 		scissor.extent = swapChainExtent;
 		vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
 
-		//render cubemap		
-		/*
-		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, cubemapPipeline);
-
-		VkBuffer cubemapBuffers[] = { offscreenVertexBuffer };
-
-		vkCmdBindVertexBuffers(commandBuffer, 0, 1, cubemapBuffers, offsets);
-		vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, cubemapPipelineLayout, 0, 1, &cubemapDescriptorSet, 0, nullptr);
-		vkCmdDraw(commandBuffer, 36, 1, 0, 0);
-		*/
-
 		VkDeviceSize offsets[] = { 0 };
 
 		vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, graphicsPipeline);
@@ -1677,7 +1733,6 @@ private:
 			vkCmdBindVertexBuffers(commandBuffer, 1, 1, instanceBuffers, offsets);
 			vkCmdBindIndexBuffer(commandBuffer, drawableHandles[i].indexBuffer, 0, VK_INDEX_TYPE_UINT32);
 			vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineLayout, 0, 1, &descriptorSets[(2 * i) + currentFrame], 0, nullptr);
-			//vkCmdDrawIndexed(commandBuffer, static_cast<uint32_t>(drawableHandles[i].indices), INSTANCE_COUNT * INSTANCE_COUNT * INSTANCE_COUNT, 0, 0, 0);
 			vkCmdDrawIndexedIndirect(
 				commandBuffer,
 				indirectCommandBuffer,
@@ -1685,18 +1740,10 @@ private:
 				indirectCommands.size(),
 				sizeof(VkDrawIndexedIndirectCommand)
 			);
-			/*
-			vertexBuffers[0] = drawableHandles[i].boundingBoxVertexBuffer;
-			vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, offsets);
-			vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, boundingBoxPipeline);
-			vkCmdDraw(commandBuffer, 3 * 6 * 6, 1, 0, 0);
-			*/
 		}
 
 
 		vkCmdEndRendering(commandBuffer);
-
-		//transitionImageLayout();
 
 		//transition images to present_src
 		VkImageMemoryBarrier colorImageEndTransitionBarrier{
@@ -1780,8 +1827,6 @@ private:
 	}
 
 	void drawFrame() {
-		vkWaitForFences(device, 1, &inFlightFences[currentFrame], VK_TRUE, UINT64_MAX);
-
 		uint32_t imageIndex;
 		VkResult result = vkAcquireNextImageKHR(device, swapChain, UINT64_MAX, imageAvailableSemaphores[currentFrame], VK_NULL_HANDLE, &imageIndex);
 		if (result == VK_ERROR_OUT_OF_DATE_KHR) {
@@ -1791,16 +1836,16 @@ private:
 		else if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
 			throw std::runtime_error("failed to acquire swap chain image!");
 		}
-		
-		auto latestTime = std::chrono::high_resolution_clock::now();
-		updateUniformBuffer(currentFrame, std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count());
-		auto lastTime = latestTime;
 
 		//add compute logic here
 		vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
 		vkResetFences(device, 1, &computeFence);
 		vkResetCommandBuffer(computeCommandBuffer, 0);
 		recordComputeCommandBuffer();
+		
+		auto latestTime = std::chrono::high_resolution_clock::now();
+		updateUniformBuffer(currentFrame, std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count());
+		auto lastTime = latestTime;
 
 		VkSubmitInfo computeSubmitInfo{};
 		computeSubmitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -1813,8 +1858,6 @@ private:
 		if (vkQueueSubmit(computeQueue, 1, &computeSubmitInfo, VK_NULL_HANDLE) != VK_SUCCESS) {
 			throw std::runtime_error("failed to submit draw compute buffer!");
 		}
-
-		//vkResetFences(device, 1, &inFlightFences[currentFrame]);
 
 		vkResetCommandBuffer(commandBuffers[currentFrame], 0);
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
@@ -1863,42 +1906,47 @@ private:
 		}
 
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
+
+		memcpy(&totalDrawsThisFrame, computeStatsMapped, computeStatsBufferSize);
+		std::cerr << "Total submits: " << INSTANCE_COUNT * INSTANCE_COUNT * INSTANCE_COUNT << "\t"
+					<< "Total draws: " << totalDrawsThisFrame << "\r" << std::flush;
 	}
 
-	void getFrustumFromCamera(UniformBufferObject &ubo, glm::mat4 matrix) {
-		//left->right->up->down->near->far
+	void updateFrustum(UniformBufferObject& ubo, glm::mat4 matrix)
+	{
+		enum side { LEFT = 0, RIGHT = 1, TOP = 2, BOTTOM = 3, BACK = 4, FRONT = 5 };
+		ubo.frustum[LEFT].x = matrix[0].w + matrix[0].x;
+		ubo.frustum[LEFT].y = matrix[1].w + matrix[1].x;
+		ubo.frustum[LEFT].z = matrix[2].w + matrix[2].x;
+		ubo.frustum[LEFT].w = matrix[3].w + matrix[3].x;
 
-		ubo.frustum[0].x = matrix[0].w + matrix[0].x;
-		ubo.frustum[0].y = matrix[1].w + matrix[1].x;
-		ubo.frustum[0].z = matrix[2].w + matrix[2].x;
-		ubo.frustum[0].w = matrix[3].w + matrix[3].x;
+		ubo.frustum[RIGHT].x = matrix[0].w - matrix[0].x;
+		ubo.frustum[RIGHT].y = matrix[1].w - matrix[1].x;
+		ubo.frustum[RIGHT].z = matrix[2].w - matrix[2].x;
+		ubo.frustum[RIGHT].w = matrix[3].w - matrix[3].x;
 
-		ubo.frustum[1].x = matrix[0].w - matrix[0].x;
-		ubo.frustum[1].y = matrix[1].w - matrix[1].x;
-		ubo.frustum[1].z = matrix[2].w - matrix[2].x;
-		ubo.frustum[1].w = matrix[3].w - matrix[3].x;
-		
-		ubo.frustum[2].x = matrix[0].w - matrix[0].y;
-		ubo.frustum[2].y = matrix[1].w - matrix[1].y;
-		ubo.frustum[2].z = matrix[2].w - matrix[2].y;
-		ubo.frustum[2].w = matrix[3].w - matrix[3].y;
-		
-		ubo.frustum[3].x = matrix[0].w + matrix[0].y;
-		ubo.frustum[3].y = matrix[1].w + matrix[1].y;
-		ubo.frustum[3].z = matrix[2].w + matrix[2].y;
-		ubo.frustum[3].w = matrix[3].w + matrix[3].y;
-		
-		ubo.frustum[4].x = matrix[0].w + matrix[0].z;
-		ubo.frustum[4].y = matrix[1].w + matrix[1].z;
-		ubo.frustum[4].z = matrix[2].w + matrix[2].z;
-		ubo.frustum[4].w = matrix[3].w + matrix[3].z;
-		
-		ubo.frustum[5].x = matrix[0].w - matrix[0].z;
-		ubo.frustum[5].y = matrix[1].w - matrix[1].z;
-		ubo.frustum[5].z = matrix[2].w - matrix[2].z;
-		ubo.frustum[5].w = matrix[3].w - matrix[3].z;
+		ubo.frustum[TOP].x = matrix[0].w - matrix[0].y;
+		ubo.frustum[TOP].y = matrix[1].w - matrix[1].y;
+		ubo.frustum[TOP].z = matrix[2].w - matrix[2].y;
+		ubo.frustum[TOP].w = matrix[3].w - matrix[3].y;
 
-		for (int i = 0; i < 6; i++) {
+		ubo.frustum[BOTTOM].x = matrix[0].w + matrix[0].y;
+		ubo.frustum[BOTTOM].y = matrix[1].w + matrix[1].y;
+		ubo.frustum[BOTTOM].z = matrix[2].w + matrix[2].y;
+		ubo.frustum[BOTTOM].w = matrix[3].w + matrix[3].y;
+
+		ubo.frustum[BACK].x = matrix[0].w + matrix[0].z;
+		ubo.frustum[BACK].y = matrix[1].w + matrix[1].z;
+		ubo.frustum[BACK].z = matrix[2].w + matrix[2].z;
+		ubo.frustum[BACK].w = matrix[3].w + matrix[3].z;
+
+		ubo.frustum[FRONT].x = matrix[0].w - matrix[0].z;
+		ubo.frustum[FRONT].y = matrix[1].w - matrix[1].z;
+		ubo.frustum[FRONT].z = matrix[2].w - matrix[2].z;
+		ubo.frustum[FRONT].w = matrix[3].w - matrix[3].z;
+
+		for (auto i = 0; i < 6; i++)
+		{
 			float length = sqrtf(ubo.frustum[i].x * ubo.frustum[i].x + ubo.frustum[i].y * ubo.frustum[i].y + ubo.frustum[i].z * ubo.frustum[i].z);
 			ubo.frustum[i] /= length;
 		}
@@ -1907,15 +1955,12 @@ private:
 	void updateUniformBuffer(uint32_t currentImage, float deltaTime) {
 		camera.update(deltaTime);
 
-		UniformBufferObject ubo{};
-		ubo.model = glm::scale(glm::mat4(1.0f), glm::vec3(1.0));
+		ubo.model = glm::mat4(1.0f);
 		ubo.view = camera.getViewMatrix();
-		ubo.proj = glm::perspective(glm::radians(45.0f), swapChainExtent.width / (float)swapChainExtent.height, 0.01f, 100.0f);
+		ubo.proj = glm::perspective(glm::radians(60.0f), (float)swapChainExtent.width / (float)swapChainExtent.height, 0.1f, 512.0f);
 		ubo.proj[1][1] *= -1;
-		if(!camera.freezeFurstum) getFrustumFromCamera(ubo, ubo.proj * ubo.model);
-
+		if(!camera.freezeFurstum) updateFrustum(ubo, ubo.proj * ubo.view);
 		memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
-		//memcpy(uniformBuffersMapped[1 - currentFrame], &ubo, sizeof(ubo));
 	}
 
 	void mainLoop() {
@@ -1978,6 +2023,30 @@ private:
 		vkFreeMemory(device, drawableHandle.boundingBoxVertexBufferMemory, nullptr);
 	}
 
+	void cleanupCompute() {
+		instanceGenData.clear();
+		instanceGenData.shrink_to_fit();
+
+		indirectCommands.clear();
+		indirectCommands.shrink_to_fit();
+
+		vkDestroyBuffer(device, indirectCommandBuffer, nullptr);
+		vkFreeMemory(device, indirectCommandMemory, nullptr);
+
+		vkDestroyBuffer(device, computeStatsBuffer, nullptr);
+		vkFreeMemory(device, computeStatsMemory, nullptr);
+
+		vkFreeCommandBuffers(device, computePool, 1, &computeCommandBuffer);
+		vkDestroyCommandPool(device, computePool, nullptr);
+
+		vkDestroyDescriptorSetLayout(device, computeDescLayout, nullptr);
+		vkDestroyPipelineLayout(device, computePipelineLayout, nullptr);
+		vkDestroyPipeline(device, computePipeline, nullptr);
+
+		vkDestroyFence(device, computeFence, nullptr);
+		vkDestroySemaphore(device, computeFinishedSempahore, nullptr);
+	}
+
 	void cleanup() {
 		cleanupSwapChain();
 
@@ -1992,6 +2061,8 @@ private:
 		);
 			}
 		);
+
+		cleanupCompute();
 
 		vkDestroyBuffer(device, instanceBuffer, nullptr);
 		vkFreeMemory(device, instanceBufferMemory, nullptr);

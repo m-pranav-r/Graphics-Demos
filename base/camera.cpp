@@ -44,25 +44,6 @@ void Camera::processGLFWKeyboardEvent(GLFWwindow* window, int key, int scancode,
 		else if (key == GLFW_KEY_Q) velocity.y = 0;
 		else if (key == GLFW_KEY_U) freezeFurstum = false;
 	}
-
-	/*
-	std::cout << "KEYEVENT CALLED:	";
-	switch (action)
-	{
-	case GLFW_PRESS:
-		std::cout << "PRESS\n";
-		break;
-	case GLFW_REPEAT:
-		std::cout << "REPEAT\n";
-		break;
-	case GLFW_RELEASE:
-		std::cout << "RELEASE\n";
-		break;
-	default:
-		break;
-	}
-	velocity[keytoArrayElement(key)] = (action == GLFW_PRESS || action == GLFW_REPEAT) * keyToSign(key);
-	*/
 }
 
 void Camera::processGLFWMouseEvent(GLFWwindow* window, double x, double y) {
