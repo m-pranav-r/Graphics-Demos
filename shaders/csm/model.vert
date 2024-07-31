@@ -31,4 +31,5 @@ void main(){
 	vec4 pos = ubo.model * vec4(inPos, 1.0);
 	gl_Position = ubo.proj * ubo.view * pos;
 	outLightSpaceCoord = biasMat * ubo.light * pos;
+	//outLightSpaceCoord = ubo.light * pos;
 }

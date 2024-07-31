@@ -10,29 +10,40 @@ layout (set = 1, binding = 3) uniform sampler2D normals;
 
 layout (set = 0, binding = 0) uniform sampler2D shadowTex;
 
+layout(constant_id = 0) const int usePCF = 0;
+
 layout (location = 0) out vec4 outColor;
 
-float ShadowCalculation(vec4 projCoords){
-	/*
-	vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
+const float ambient = 0.05;
 
-	float closestDepth = texture(shadowTex, projCoords.xy).r;
-	float currentDepth = projCoords.z;
-
-	return currentDepth >= closestDepth ? 1.0 : 0.0;
-	*/
+float PCFShadowCalc(vec4 projCoords){
 	vec4 shadowCoords = projCoords / projCoords.w;
-	//shadowCoords = shadowCoords * 0.5 + 0.5;
+
+	ivec2 texDim = textureSize(shadowTex, 0);
+	vec2 texelSize = 1.0 / texDim;
+
+	float shadow = 0.0;
+	for(int x = -1; x <= 1; x++){
+		for(int y = -1; y <= 1; y++){
+			float pcfDepth = texture(shadowTex, shadowCoords.st + texelSize * vec2(x, y)).r;
+			shadow += shadowCoords.z - 0.005 > pcfDepth ? 1.0 : ambient;
+		}
+	}
+	return shadow / 9;
+}
+
+float ShadowCalculation(vec4 projCoords){
+	vec4 shadowCoords = projCoords / projCoords.w;
+
 	float closestDepth = texture(shadowTex, shadowCoords.st).r;
 	float currentDepth = shadowCoords.z;
 
-	float shadow = currentDepth - 0.005 > closestDepth ? 0.15 : 1.0;
+	float shadow = currentDepth - 0.005 > closestDepth ? 1.0 : ambient;
 
 	return shadow;
 }
 
 void main(){
 	vec4 baseColor = pow(texture(baseColorTex, inTexCoord), vec4(2.2));
-	//outColor = vec4(ShadowCalculation(inLightSpaceCoord).xxx, 1.0);
-	outColor = vec4(baseColor.xyz * ShadowCalculation(inLightSpaceCoord), 1.0);
+	outColor = vec4(baseColor.xyz * (1 - (usePCF == 1 ? PCFShadowCalc(inLightSpaceCoord) : ShadowCalculation(inLightSpaceCoord))), 1.0);
 }

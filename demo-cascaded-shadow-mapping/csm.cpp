@@ -186,7 +186,7 @@ private:
 		VkDescriptorSetLayout shadowDSL;
 		std::vector<VkDescriptorSet> descriptorSets;
 		VkDescriptorSet shadowDescSet;
-		VkPipeline pipeline;
+		VkPipeline noPCFPipeline, PCFPipeline;
 		VkDescriptorPool descriptorPool;
 	}model;
 
@@ -212,7 +212,7 @@ private:
 
 	struct {
 		VkPipelineLayout pipelineLayout;
-		VkPipeline pipeline, depthClampLessPipeline;
+		VkPipeline pipeline;
 		VkFence fence;
 	} shadowPass;
 
@@ -243,7 +243,7 @@ private:
 	bool framebufferResized = false;
 	bool isShadowMapLatest = true;
 	bool isShaderLatest = true;
-	bool useDepthClampLessPipeline = false;
+	bool usePCF = false;
 
 	std::chrono::steady_clock::time_point lastTime;
 
@@ -496,7 +496,8 @@ private:
 
 		if (!isShaderLatest) {
 			vkDestroyPipelineLayout(app.device, model.pipelineLayout, nullptr);
-			vkDestroyPipeline(app.device, model.pipeline, nullptr);
+			vkDestroyPipeline(app.device, model.noPCFPipeline, nullptr);
+			vkDestroyPipeline(app.device, model.PCFPipeline, nullptr);
 		}
 
 		ShaderHelper vertShader;
@@ -506,6 +507,17 @@ private:
 		ShaderHelper fragShader;
 		fragShader.init("frag", Type::FRAG, app.device);
 		fragShader.readCompiledSPIRVAndCreateShaderModule("../shaders/csm/model.frag.spv");
+
+		uint32_t enablePCF = 0;
+		VkSpecializationMapEntry specialEntry{};
+		specialEntry.constantID = 0;
+		specialEntry.offset = 0;
+		specialEntry.size = sizeof(uint32_t);
+
+		VkSpecializationInfo specialInfo{};
+		specialInfo.mapEntryCount = 1;	specialInfo.pMapEntries = &specialEntry;
+		specialInfo.dataSize = sizeof(uint32_t);
+		specialInfo.pData = &enablePCF;
 
 		VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
 		vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -518,6 +530,7 @@ private:
 		fragShaderStageInfo.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
 		fragShaderStageInfo.module = fragShader.shaderModule;
 		fragShaderStageInfo.pName = "main";
+		fragShaderStageInfo.pSpecializationInfo = &specialInfo;
 
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
@@ -626,8 +639,13 @@ private:
 		pipelineInfo.basePipelineIndex = -1;
 		pipelineInfo.pStages = shaderStages;
 
-		if (vkCreateGraphicsPipelines(app.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &model.pipeline) != VK_SUCCESS) {
+		if (vkCreateGraphicsPipelines(app.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &model.noPCFPipeline) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create graphics pipeline!");
+		}
+
+		enablePCF = 1;
+		if (vkCreateGraphicsPipelines(app.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &model.PCFPipeline) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create pcf graphics pipeline!");
 		}
 
 		vkDestroyShaderModule(app.device, vertShader.shaderModule, nullptr);
@@ -1032,6 +1050,7 @@ private:
 		poolInfo.pPoolSizes = poolSizes.data();
 		poolInfo.poolSizeCount = 2;
 		poolInfo.maxSets = 300;
+		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
 		if (vkCreateDescriptorPool(app.device, &poolInfo, nullptr, &model.descriptorPool) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create descriptor pool!");
@@ -1153,7 +1172,6 @@ private:
 	}
 
 	void createShadowImage() {
-		std::cout << "\n\n\nstarting shaodw stuff";
 		memHelper.createImage(
 			SHADOW_MAP_SIZE,
 			SHADOW_MAP_SIZE,
@@ -1208,14 +1226,21 @@ private:
 		VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo };
 
 		auto bindingDescription = Vertex::getBindingDescription();
-		auto attributeDescriptions = Vertex::getAttributeDescriptions();
+
+		VkVertexInputAttributeDescription attributeDescription{};
+		attributeDescription.binding = 0;
+		attributeDescription.location = 0;
+		attributeDescription.format = VK_FORMAT_R32G32B32_SFLOAT;
+		attributeDescription.offset = offsetof(Vertex, pos);
+
+		VkVertexInputAttributeDescription attributeDescriptions[] = { attributeDescription };
 
 		VkPipelineVertexInputStateCreateInfo vertexInputInfo{};
 		vertexInputInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 		vertexInputInfo.vertexBindingDescriptionCount = 1;
-		vertexInputInfo.vertexAttributeDescriptionCount = static_cast<uint32_t>(attributeDescriptions.size());
+		vertexInputInfo.vertexAttributeDescriptionCount = 1;
 		vertexInputInfo.pVertexBindingDescriptions = &bindingDescription;
-		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions.data();
+		vertexInputInfo.pVertexAttributeDescriptions = attributeDescriptions;
 
 		VkPipelineInputAssemblyStateCreateInfo inputAssembly{};
 		inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -1233,8 +1258,8 @@ private:
 		rasterizer.rasterizerDiscardEnable = VK_FALSE;
 		rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
 		rasterizer.lineWidth = 1.0f;
-		rasterizer.cullMode = VK_CULL_MODE_NONE;			//todo: play around with this
-		rasterizer.depthBiasEnable = VK_TRUE;				//todo: this too
+		rasterizer.cullMode = VK_CULL_MODE_NONE;
+		rasterizer.depthBiasEnable = VK_TRUE;
 
 		VkPipelineMultisampleStateCreateInfo multisampling{};
 		multisampling.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -1307,11 +1332,6 @@ private:
 		pipelineInfo.stageCount = 1;
 
 		if (vkCreateGraphicsPipelines(app.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &shadowPass.pipeline) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create shadow pipeline!");
-		}
-
-		rasterizer.depthClampEnable = VK_FALSE;
-		if (vkCreateGraphicsPipelines(app.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &shadowPass.depthClampLessPipeline) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create shadow pipeline!");
 		}
 
@@ -1437,8 +1457,8 @@ private:
 		shadowVars.data.model = glm::scale(glm::mat4(1.0f), sponzaScaleMatrix);
 		shadowVars.data.viewProj = shadowProj * shadowView;
 
-		vkCmdBindPipeline(shadowCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, useDepthClampLessPipeline ? shadowPass.depthClampLessPipeline : shadowPass.pipeline);
-		vkCmdSetDepthBias(shadowCmdBuf, 1.25f, 0.0f, 1.75f);
+		vkCmdBindPipeline(shadowCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPass.pipeline);
+		//vkCmdSetDepthBias(shadowCmdBuf, 1.25f, 0.0f, 1.75f);
 		vkCmdPushConstants(shadowCmdBuf, shadowPass.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowMapData), &shadowVars.data);
 
 		//render model
@@ -1662,7 +1682,7 @@ private:
 
 		VkDeviceSize offsets[] = { 0 };
 
-		vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, model.pipeline);
+		vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, usePCF ? model.PCFPipeline : model.noPCFPipeline);
 		vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, model.pipelineLayout, 0, 1, &model.shadowDescSet, 0, nullptr);
 
 		//render model
@@ -1731,7 +1751,7 @@ private:
 			ImGui::InputFloat("Shadow Point", &shadowVars.point);
 			ImGui::InputFloat("Shadow Near", &shadowVars.near);
 			ImGui::InputFloat("Shadow Far", &shadowVars.far);
-			ImGui::Checkbox("Disable Depth Clamp", &useDepthClampLessPipeline);
+			ImGui::Checkbox("Enable PCF", &usePCF);
 
 			if (ImGui::Button("Re-render Shadow Map"))
 				isShadowMapLatest = false;
@@ -2007,18 +2027,28 @@ private:
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
 
+		vkDestroySampler(app.device, shadow.sampler, nullptr);
+		vkDestroyImageView(app.device, shadow.view, nullptr);
+		vkDestroyImage(app.device, shadow.image, nullptr);
+		vkFreeMemory(app.device, shadow.memory, nullptr);
+
 		vkDestroyDescriptorSetLayout(app.device, model.fullDSL, nullptr);
+		vkDestroyDescriptorSetLayout(app.device, model.shadowDSL, nullptr);
 
 		vkDestroyDescriptorPool(app.device, model.descriptorPool, nullptr);
 
-		vkDestroyPipeline(app.device, model.pipeline, nullptr);
+		vkDestroyPipeline(app.device, model.noPCFPipeline, nullptr);
+		vkDestroyPipeline(app.device, model.PCFPipeline, nullptr);
+		vkDestroyPipeline(app.device, shadowPass.pipeline, nullptr);
 		vkDestroyPipelineLayout(app.device, model.pipelineLayout, nullptr);
+		vkDestroyPipelineLayout(app.device, shadowPass.pipelineLayout, nullptr);
 
 		for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; i++) {
 			vkDestroySemaphore(app.device, renderFinishedSemaphores[i], nullptr);
 			vkDestroySemaphore(app.device, imageAvailableSemaphores[i], nullptr);
 			vkDestroyFence(app.device, inFlightFences[i], nullptr);
 		}
+		vkDestroyFence(app.device, shadowPass.fence, nullptr);
 
 		vkDestroyCommandPool(app.device, commandPool, nullptr);
 
