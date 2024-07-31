@@ -16,6 +16,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Solution Items", "Solution 
 		README.md = README.md
 	EndProjectSection
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "demo-cascaded-shadow-mapping", "demo-cascaded-shadow-mapping\demo-cascaded-shadow-mapping.vcxproj", "{9E8614C3-B5A0-439B-8CB4-5A6537EE3501}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -48,6 +50,14 @@ Global
 		{4CC78B49-22AB-4DD8-AD1B-B71A35F6EE32}.Release|x64.Build.0 = Release|x64
 		{4CC78B49-22AB-4DD8-AD1B-B71A35F6EE32}.Release|x86.ActiveCfg = Release|Win32
 		{4CC78B49-22AB-4DD8-AD1B-B71A35F6EE32}.Release|x86.Build.0 = Release|Win32
+		{9E8614C3-B5A0-439B-8CB4-5A6537EE3501}.Debug|x64.ActiveCfg = Debug|x64
+		{9E8614C3-B5A0-439B-8CB4-5A6537EE3501}.Debug|x64.Build.0 = Debug|x64
+		{9E8614C3-B5A0-439B-8CB4-5A6537EE3501}.Debug|x86.ActiveCfg = Debug|Win32
+		{9E8614C3-B5A0-439B-8CB4-5A6537EE3501}.Debug|x86.Build.0 = Debug|Win32
+		{9E8614C3-B5A0-439B-8CB4-5A6537EE3501}.Release|x64.ActiveCfg = Release|x64
+		{9E8614C3-B5A0-439B-8CB4-5A6537EE3501}.Release|x64.Build.0 = Release|x64
+		{9E8614C3-B5A0-439B-8CB4-5A6537EE3501}.Release|x86.ActiveCfg = Release|Win32
+		{9E8614C3-B5A0-439B-8CB4-5A6537EE3501}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

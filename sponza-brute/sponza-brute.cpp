@@ -208,13 +208,9 @@ private:
 	std::vector<Drawable> drawables;
 
 	VkInstance instance;
-
 	Init vulkanInit;
-
 	DeviceHelper deviceHelper;
-
 	MemoryHelper memHelper;			std::mutex memMutex;
-
 	CommandHelper commHelper;		std::mutex commMutex;
 
 	const char* hdriPath;
@@ -222,7 +218,7 @@ private:
 	VkSurfaceKHR surface;
 	GLFWwindow* window;
 	VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
-	VkDevice device;
+	vk::Device device;	//VkDevice device;
 	VkQueue graphicsQueue;
 	VkQueue presentQueue;
 	VkQueue transferQueue;
@@ -230,7 +226,7 @@ private:
 	std::vector<VkImage> swapChainImages;
 	VkFormat swapChainImageFormat;
 	VkExtent2D swapChainExtent;
-	std::vector<VkImageView> swapChainImageViews;
+	std::vector<vk::ImageView> swapChainImageViews;
 	VkRenderPass renderPass;
 	VkPipelineLayout pipelineLayout;// , specialPipelineLayout;
 	//VkDescriptorSetLayout descriptorSetLayout;
@@ -391,6 +387,7 @@ private:
 		camera.position = glm::vec3(2.f);
 		camera.pitch = 0;
 		camera.yaw = 0;
+		camera.scalingFactor = 2;
 
 		instance = vulkanInit.getInstance();
 		window = vulkanInit.getWindow();
@@ -502,23 +499,22 @@ private:
 	void createImageViews() {
 		swapChainImageViews.resize(swapChainImages.size());
 		for (size_t i = 0; i < swapChainImages.size(); i++) {
-			VkImageViewCreateInfo createInfo{};
-			createInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-			createInfo.image = swapChainImages[i];
-			createInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-			createInfo.format = swapChainImageFormat;
-			createInfo.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
-			createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-			createInfo.subresourceRange.baseMipLevel = 0;
-			createInfo.subresourceRange.levelCount = 1;
-			createInfo.subresourceRange.baseArrayLayer = 0;
-			createInfo.subresourceRange.layerCount = 1;
 
-			VkResult swapChainImageViewCreateResult = vkCreateImageView(device, &createInfo, nullptr, &swapChainImageViews[i]);
-			if (swapChainImageViewCreateResult != VK_SUCCESS) {
+			auto imageCreateInfo = vk::ImageViewCreateInfo(
+				vk::ImageViewCreateFlags(),
+				vk::Image(swapChainImages[i]),
+				vk::ImageViewType::e2D,
+				vk::Format(swapChainImageFormat),
+				vk::ComponentMapping(),
+				vk::ImageSubresourceRange(
+					vk::ImageAspectFlags(vk::ImageAspectFlagBits::eColor),
+					0, 1, 0, 1
+				),
+				nullptr
+			);
+			try {
+				swapChainImageViews[i] = device.createImageView(imageCreateInfo);
+			} catch (vk::SystemError err) {
 				throw std::runtime_error("failed to create image views!");
 			}
 		}
@@ -693,14 +689,7 @@ private:
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &pipelineLayout) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create pipeline layout!");
 		}
-		/*
-		pipelineLayoutInfo.pSetLayouts = &baseOnlyDSL;
 
-		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, nullptr, &specialPipelineLayout) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create special pipeline layout!");
-		}
-
-		*/
 		VkPipelineRenderingCreateInfoKHR pipelineRenderingCreateInfo = {
 			.sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO_KHR,
 			.colorAttachmentCount = 1,
@@ -730,15 +719,6 @@ private:
 		if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipeline) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create graphics pipeline!");
 		}
-
-		/*
-		pipelineInfo.pStages = shaderStagesSpecial;
-		pipelineInfo.layout = specialPipelineLayout;
-
-		if (vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &graphicsPipelineSpecial) != VK_SUCCESS) {
-			throw std::runtime_error("failed to create special graphics pipeline!");
-		}
-		*/
 
 		vkDestroyShaderModule(device, vertShader.shaderModule, nullptr);
 		vkDestroyShaderModule(device, fragShader.shaderModule, nullptr);
@@ -4477,7 +4457,7 @@ private:
 
 		auto latestTime = std::chrono::high_resolution_clock::now();
 		updateUniformBuffer(currentFrame, std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count());
-		auto lastTime = latestTime;
+		lastTime = latestTime;
 
 		VkSubmitInfo submitInfo{};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;

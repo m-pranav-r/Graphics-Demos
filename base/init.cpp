@@ -31,21 +31,24 @@ void Init::init() {
 		throw std::runtime_error("validation layers enabled, but not available!");
 	}
 
-	VkApplicationInfo appInfo{};
-	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-	appInfo.pApplicationName = "Hello Triangle";
-	appInfo.applicationVersion = VK_API_VERSION_1_3;
-	appInfo.pEngineName = "No Engine";
-	appInfo.engineVersion = VK_API_VERSION_1_3;
-	appInfo.apiVersion = VK_API_VERSION_1_3;
+	auto appInfo = vk::ApplicationInfo(
+		"Vulkan Application",
+		VK_API_VERSION_1_3,
+		"Generic Engine",
+		VK_API_VERSION_1_3,
+		VK_API_VERSION_1_3
+	);
 
 	appInfo.pNext = nullptr;
 
-	VkInstanceCreateInfo createInfo{};
-	createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-	createInfo.pApplicationInfo = &appInfo;
-
 	auto extensions = getRequiredExtensions();
+
+	auto createInfo = vk::InstanceCreateInfo(
+		vk::InstanceCreateFlags(),
+		&appInfo,
+		0, nullptr,
+		static_cast<uint32_t>(extensions.size()), extensions.data()
+	);
 
 	createInfo.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
 	createInfo.ppEnabledExtensionNames = extensions.data();
@@ -63,9 +66,10 @@ void Init::init() {
 
 		createInfo.pNext = nullptr;
 	}
-
-	VkResult instanceCreationResult = vkCreateInstance(&createInfo, nullptr, &instance);
-	if (instanceCreationResult != VK_SUCCESS) {
+	try {
+		instance = vk::createInstance(createInfo, nullptr);
+	}
+	catch (vk::SystemError err) {
 		throw std::runtime_error("failed to create instance!");
 	}
 

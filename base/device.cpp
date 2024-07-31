@@ -133,7 +133,8 @@ void DeviceHelper::initDevices()
 	deviceFeatures.samplerAnisotropy = VK_TRUE;
 	deviceFeatures.sampleRateShading = VK_TRUE;
 	deviceFeatures.fillModeNonSolid = VK_TRUE;		//for wireframe rendering
-	deviceFeatures.multiDrawIndirect = VK_TRUE;	//force enable for 'demo-culling'
+	deviceFeatures.multiDrawIndirect = VK_TRUE;		//force enable for 'demo-culling'
+	deviceFeatures.depthClamp = VK_TRUE;			//force enable for 'demo-cascaded-shadow-mapping'
 
 	//also leaving dynamic rendering feature in as default
 	VkPhysicalDeviceDynamicRenderingFeaturesKHR dynamicRenderingFeatures = {
