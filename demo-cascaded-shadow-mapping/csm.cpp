@@ -36,11 +36,7 @@
 #define SHADOW_MAP_SIZE 1024
 #define SHADOW_MAP_FORMAT VK_FORMAT_D32_SFLOAT
 
-#define NEAR_PLANE 0.01f
-#define FAR_PLANE  10.0f
-#define FOV 45.0f
-#define NUM_SPLITS 4
-#define LIGHT_POSITION glm::vec3(2.0f, 4.0f, 1.0f)
+#define MAX_SPLITS 4
 
 #ifdef _DEBUG
 bool isDebugEnv = true;
@@ -93,44 +89,41 @@ struct Vertex {
 struct UniformBufferObject {
 	glm::mat4 model;
 	glm::mat4 viewProj;
-
-	glm::mat4 lightViewProj[4];
-	float far[4];
-
 	glm::vec3 camPos;	float _pad0;
 	glm::vec3 lightPos;	float _pad1;
+};
+
+struct ShadowUniformBufferObject {
+	glm::mat4 lightViewProj[4];
+	glm::vec4 far;
 };
 
 struct ShadowMapData {
 	glm::mat4 model;
 	glm::mat4 viewProj;
-	//float nears[5];
 };
 
 struct CascadedShadowMapData {
-	std::vector <float> near, far;
-	std::vector <glm::mat4> frusta;
-	std::vector <glm::vec3> centers;
+	std::array <float, 4> near, far;
+	std::array <glm::mat4, 4> frusta;
+	std::array <glm::vec3, 4> centers;
 
-	void update(Camera camera, glm::vec3 lightDir, uint32_t splits, float minNear, float maxFar, float aspect) {
-
-		near.resize(splits);
-		far.resize(splits);
+	void update(Camera camera, glm::vec3 lightDir, uint32_t splits, float minNear, float maxFar, float aspect, float split) {
 
 		near[0] = minNear;
 		//set near and far planes according to split function
 		for (int i = 0; i < splits; i++) {
 			if(i != 0) near[i] = far[i - 1];
-			far[i] = minNear * pow((maxFar / (float)minNear), ((i + 1) / (float)splits));
+			far[i] = (1 - split) * (minNear * pow((maxFar / (float)minNear), ((i + 1) / (float)splits)))//log split
+					+ split * (minNear + (maxFar - minNear) * ((i + 1) / splits));																		//linear split
 		}
-		
 		//make perspective matrices
 		//todo: deproject to world space, expand to include all occluders, and re-make matrices
-		frusta.resize(splits);
-		centers.resize(splits);
 
 		for (int i = 0; i < splits; i++) {
-			auto frustaProj = glm::perspective(glm::radians(FOV), aspect, near[i] - 0.001f, far[i] + 0.001f);
+			//near[i] *= 1.2f;
+			//far[i] *= 1.2f;
+			auto frustaProj = glm::perspective(glm::radians(60.0f), aspect, near[i], far[i]);
 			
 			std::array <glm::vec4, 8> frustaPoints;	
 			frustaPoints = {
@@ -256,7 +249,7 @@ private:
 		std::vector<VkDescriptorSet> descriptorSets;
 		VkDescriptorSet shadowDescSet;
 		std::vector<VkDescriptorSet> debugDescSet;
-		VkPipeline noPCFPipeline, PCFPipeline;
+		VkPipeline noPCFPipeline, PCFPipeline, debugPipeline;
 		VkDescriptorPool descriptorPool;
 	}model;
 
@@ -289,22 +282,22 @@ private:
 	} shadowPass;
 
 	struct {
-		float 
-			eye[3] = { -2.0f, 4.0f, -1.0f },
-			point = 2.0f,
-			near = NEAR_PLANE,
-			far = FAR_PLANE
+		float
+			eye[3] = { 2.0f, 4.0f, 1.0f },
+			near = 0.1f,
+			far = 512.0f,
+			splitCoefficient = 0.5f;
 		;
-		ShadowMapData data;
+		int splits = 3;
 	} shadowVars;
 
 	std::vector<VkBuffer> uniformBuffers;
 	std::vector<VkDeviceMemory> uniformBuffersMemory;
 	std::vector<void*> uniformBuffersMapped;
 
-	VkBuffer offscreenUniformBuffer;
-	VkDeviceMemory offscreenUniformBufferMemory;
-	void* offscreenUniformBufferMapped;
+	VkBuffer shadowUniformBuffer;
+	VkDeviceMemory shadowUniformBufferMemory;
+	void* shadowUniformBufferMapped;
 
 	std::vector<VkCommandBuffer> commandBuffers;
 	std::vector<VkSemaphore >imageAvailableSemaphores;
@@ -316,6 +309,7 @@ private:
 	bool isFirstRenderDone = false;
 	bool isShaderLatest = true;
 	bool usePCF = false;
+	bool debugColors = false;
 
 	std::chrono::steady_clock::time_point lastTime;
 
@@ -371,8 +365,6 @@ private:
 		);
 		vulkanInit.init();
 
-		//setupShadowMapData();
-
 		camera.velocity = glm::vec3(0.f);
 		camera.position = glm::vec3(2.f);
 		camera.pitch = 0;
@@ -391,15 +383,6 @@ private:
 		deviceHelper.createSwapchain(swapchain.swapChain, app.window, swapchain.images, swapchain.imageFormat, swapchain.extent);
 		app.device = deviceHelper.getDevice();
 		app.physicalDevice = deviceHelper.getPhysicalDevice();
-
-		csmData.update(
-			camera,
-			glm::vec3(0.0f) - LIGHT_POSITION,
-			NUM_SPLITS,
-			NEAR_PLANE,
-			FAR_PLANE,
-			swapchain.extent.width / (float)(swapchain.extent.height)
-		);
 
 		deviceHelper.getQueues(queues.graphics, queues.present, queues.transfer);
 
@@ -476,7 +459,6 @@ private:
 			//one setup, one pass - static light for now
 			createShadowImage();
 			setupShadowPass();
-			performShadowRender();
 
 		createDescriptorSets();
 
@@ -562,19 +544,34 @@ private:
 		//layout for shadow-only desc set
 		VkDescriptorSetLayoutBinding shadowLayoutBinding{};
 		shadowLayoutBinding.binding = 0;
-		shadowLayoutBinding.descriptorCount = NUM_SPLITS;
+		shadowLayoutBinding.descriptorCount = MAX_SPLITS;
 		shadowLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		shadowLayoutBinding.pImmutableSamplers = nullptr;
 		shadowLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 
-		layoutInfo.bindingCount = 1;
-		layoutInfo.pBindings = &shadowLayoutBinding;
+		VkDescriptorSetLayoutBinding shadowUniformLayoutBinding{};
+		shadowUniformLayoutBinding.binding = 1;
+		shadowUniformLayoutBinding.descriptorCount = 1;
+		shadowUniformLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		shadowUniformLayoutBinding.pImmutableSamplers = nullptr;
+		shadowUniformLayoutBinding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
+		std::vector<VkDescriptorSetLayoutBinding> shadowBindings = {
+			shadowLayoutBinding, 
+			shadowUniformLayoutBinding 
+		};
+
+		layoutInfo.bindingCount = static_cast<uint32_t>(shadowBindings.size());
+		layoutInfo.pBindings = shadowBindings.data();
 
 		if (vkCreateDescriptorSetLayout(app.device, &layoutInfo, nullptr, &model.shadowDSL) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create shadow-only descriptor set layout!");
 		}
 
 		shadowLayoutBinding.descriptorCount = 1;
+
+		layoutInfo.bindingCount = 1;
+		layoutInfo.pBindings = &shadowLayoutBinding;
 
 		if (vkCreateDescriptorSetLayout(app.device, &layoutInfo, nullptr, &model.debugShadowDSL) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create debug descriptor set layout!");
@@ -585,7 +582,6 @@ private:
 
 		if (!isShaderLatest) {
 			vkWaitForFences(app.device, 1, &inFlightFences[(currentFrame + 1) % MAX_FRAMES_IN_FLIGHT], VK_TRUE, UINT64_MAX);
-			//vkResetFences(app.device, 1, &inFlightFences[(currentFrame + 1) % MAX_FRAMES_IN_FLIGHT]);
 			vkDestroyPipelineLayout(app.device, model.pipelineLayout, nullptr);
 			vkDestroyPipeline(app.device, model.noPCFPipeline, nullptr);
 			vkDestroyPipeline(app.device, model.PCFPipeline, nullptr);
@@ -599,16 +595,25 @@ private:
 		fragShader.init("frag", Type::FRAG, app.device);
 		fragShader.readCompiledSPIRVAndCreateShaderModule("../shaders/csm/model.frag.spv");
 
-		uint32_t enablePCF = 0;
-		VkSpecializationMapEntry specialEntry{};
-		specialEntry.constantID = 0;
-		specialEntry.offset = 0;
-		specialEntry.size = sizeof(uint32_t);
+		struct SpecialisationData {
+			uint32_t enablePCF = 0;
+			uint32_t useDebugColors = 0;
+		} specValues;
+
+		std::array<VkSpecializationMapEntry, 2> specialEntry;
+		specialEntry[0].constantID = 0;
+		specialEntry[0].offset = 0;
+		specialEntry[0].size = sizeof(uint32_t);
+
+		specialEntry[1].constantID = 1;
+		specialEntry[1].offset = offsetof(SpecialisationData, useDebugColors);
+		specialEntry[1].size = sizeof(uint32_t);
 
 		VkSpecializationInfo specialInfo{};
-		specialInfo.mapEntryCount = 1;	specialInfo.pMapEntries = &specialEntry;
-		specialInfo.dataSize = sizeof(uint32_t);
-		specialInfo.pData = &enablePCF;
+		specialInfo.mapEntryCount = 2;	
+		specialInfo.pMapEntries = specialEntry.data();
+		specialInfo.dataSize = sizeof(SpecialisationData);
+		specialInfo.pData = &specValues;
 
 		VkPipelineShaderStageCreateInfo vertShaderStageInfo{};
 		vertShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
@@ -733,8 +738,13 @@ private:
 		if (vkCreateGraphicsPipelines(app.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &model.noPCFPipeline) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create graphics pipeline!");
 		}
+		specValues.useDebugColors = 1;
+		if (vkCreateGraphicsPipelines(app.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &model.debugPipeline) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create debug graphics pipeline!");
+		}
 
-		enablePCF = 1;
+		specValues.useDebugColors = 0;
+		specValues.enablePCF = 1;
 		if (vkCreateGraphicsPipelines(app.device, VK_NULL_HANDLE, 1, &pipelineInfo, nullptr, &model.PCFPipeline) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create pcf graphics pipeline!");
 		}
@@ -1121,6 +1131,16 @@ private:
 			);
 			vkMapMemory(app.device, uniformBuffersMemory[i], 0, bufferSize, 0, &uniformBuffersMapped[i]);
 		}
+
+		memHelper.createBuffer(
+			sizeof(ShadowUniformBufferObject),
+			VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			shadowUniformBuffer,
+			shadowUniformBufferMemory,
+			QUEUE_TYPE_GRAPHICS | QUEUE_TYPE_TRANSFER
+		);
+		vkMapMemory(app.device, shadowUniformBufferMemory, 0, bufferSize, 0, &shadowUniformBufferMapped);
 	}
 
 	void createDescriptorPool() {
@@ -1170,11 +1190,11 @@ private:
 				throw std::runtime_error("failed to allocate shadow descriptor set!");
 			}
 
-			std::vector<VkDescriptorSetLayout> debugLayouts(NUM_SPLITS, model.debugShadowDSL);
+			std::vector<VkDescriptorSetLayout> debugLayouts(MAX_SPLITS, model.debugShadowDSL);
 
-			allocInfo.descriptorSetCount = NUM_SPLITS;
+			allocInfo.descriptorSetCount = MAX_SPLITS;
 			allocInfo.pSetLayouts = debugLayouts.data();
-			model.debugDescSet.resize(NUM_SPLITS);
+			model.debugDescSet.resize(MAX_SPLITS);
 
 			if (vkAllocateDescriptorSets(app.device, &allocInfo, model.debugDescSet.data()) != VK_SUCCESS) {
 				throw std::runtime_error("failed to allocate debug descriptor sets!");
@@ -1241,28 +1261,40 @@ private:
 			}
 		}
 
-		VkDescriptorImageInfo shadowImageInfos[NUM_SPLITS];
-		for (int i = 0; i < NUM_SPLITS; i++) {
+		VkDescriptorImageInfo shadowImageInfos[MAX_SPLITS];
+		for (int i = 0; i < MAX_SPLITS; i++) {
 			shadowImageInfos[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			shadowImageInfos[i].imageView = shadow.intermediateViews[i];
 			shadowImageInfos[i].sampler = shadow.sampler;
 		}
 
-		VkWriteDescriptorSet descWrite{};
+		VkDescriptorBufferInfo shadowUniformInfo{};
+		shadowUniformInfo.buffer = shadowUniformBuffer;
+		shadowUniformInfo.offset = 0;
+		shadowUniformInfo.range  = sizeof(ShadowUniformBufferObject);
 
-		descWrite.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descWrite.dstSet = model.shadowDescSet;
-		descWrite.dstBinding = 0;
-		descWrite.dstArrayElement = 0;
-		descWrite.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		descWrite.descriptorCount = NUM_SPLITS;
-		descWrite.pImageInfo = shadowImageInfos;
+		std::array<VkWriteDescriptorSet, 2> descWrites{};
+		descWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descWrites[0].dstSet = model.shadowDescSet;
+		descWrites[0].dstBinding = 0;
+		descWrites[0].dstArrayElement = 0;
+		descWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		descWrites[0].descriptorCount = MAX_SPLITS;
+		descWrites[0].pImageInfo = shadowImageInfos;
 
-		vkUpdateDescriptorSets(app.device, 1, &descWrite, 0, nullptr);
+		descWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descWrites[1].dstSet = model.shadowDescSet;
+		descWrites[1].dstBinding = 1;
+		descWrites[1].dstArrayElement = 0;
+		descWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+		descWrites[1].descriptorCount = 1;
+		descWrites[1].pBufferInfo = &shadowUniformInfo;
 
-		std::vector<VkWriteDescriptorSet> debugWrites(NUM_SPLITS);
+		vkUpdateDescriptorSets(app.device, 2, descWrites.data(), 0, nullptr);
 
-		for (int i = 0; i < NUM_SPLITS; i++) {
+		std::vector<VkWriteDescriptorSet> debugWrites(MAX_SPLITS);
+
+		for (int i = 0; i < MAX_SPLITS; i++) {
 			debugWrites[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 			debugWrites[i].dstSet = model.debugDescSet[i];
 			debugWrites[i].dstBinding = 0;
@@ -1272,7 +1304,7 @@ private:
 			debugWrites[i].pImageInfo = &shadowImageInfos[i];
 		}
 
-		vkUpdateDescriptorSets(app.device, NUM_SPLITS, debugWrites.data(), 0, nullptr);
+		vkUpdateDescriptorSets(app.device, MAX_SPLITS, debugWrites.data(), 0, nullptr);
 	}
 
 	void createCommandBuffers() {
@@ -1300,7 +1332,7 @@ private:
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			shadow.image,
 			shadow.memory,
-			NUM_SPLITS
+			MAX_SPLITS
 		);
 
 		shadow.view = createImageView(
@@ -1308,12 +1340,12 @@ private:
 			deviceHelper.findDepthFormat(), 
 			VK_IMAGE_ASPECT_DEPTH_BIT, 
 			1,
-			NUM_SPLITS,
+			MAX_SPLITS,
 			0
 		);
 
-		shadow.intermediateViews.resize(NUM_SPLITS);
-		for (int i = 0; i < NUM_SPLITS; i++) {
+		shadow.intermediateViews.resize(MAX_SPLITS);
+		for (int i = 0; i < MAX_SPLITS; i++) {
 			shadow.intermediateViews[i] = createImageView(
 				shadow.image,
 				deviceHelper.findDepthFormat(),
@@ -1326,7 +1358,7 @@ private:
 
 		VkCommandBuffer commandBuffer = commHelper.beginSingleTimeCommands(commandPool);
 
-			memHelper.transitionImageLayout(commandBuffer, shadow.image, SHADOW_MAP_FORMAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1, NUM_SPLITS);
+			memHelper.transitionImageLayout(commandBuffer, shadow.image, SHADOW_MAP_FORMAT, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1, MAX_SPLITS);
 		
 		commHelper.endSingleTimeCommands(commandBuffer, commandPool, queues.graphics);
 
@@ -1523,7 +1555,7 @@ private:
 				.baseMipLevel = 0,
 				.levelCount = 1,
 				.baseArrayLayer = 0,
-				.layerCount = NUM_SPLITS
+				.layerCount = MAX_SPLITS
 			}
 			};
 
@@ -1560,7 +1592,7 @@ private:
 
 		VkDeviceSize offsets[] = { 0 };
 		bool pipelineBound = false;
-		for (int i = 0; i < NUM_SPLITS; i++) {
+		for (int i = 0; i < shadowVars.splits; i++) {
 
 			VkRenderingAttachmentInfoKHR depthAttachment = {
 				.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
@@ -1585,10 +1617,9 @@ private:
 			smd.model = glm::scale(glm::mat4(1.0f), sponzaScaleMatrix);
 			smd.viewProj = csmData.frusta[i];
 			
-			if (!pipelineBound) {
-				vkCmdBindPipeline(shadowCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPass.pipeline);
-				pipelineBound = true;
-			}
+			if (!pipelineBound)	vkCmdBindPipeline(shadowCmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPass.pipeline);
+			pipelineBound = true;
+			
 			vkCmdPushConstants(shadowCmdBuf, shadowPass.pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(ShadowMapData), &smd);
 			
 			//render model
@@ -1615,7 +1646,7 @@ private:
 				.baseMipLevel = 0,
 				.levelCount = 1,
 				.baseArrayLayer = 0,
-				.layerCount = NUM_SPLITS
+				.layerCount = MAX_SPLITS
 			}
 		};
 
@@ -1811,7 +1842,7 @@ private:
 
 		VkDeviceSize offsets[] = { 0 };
 
-		vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, usePCF ? model.PCFPipeline : model.noPCFPipeline);
+		vkCmdBindPipeline(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, debugColors == true ? model.debugPipeline : usePCF == true ? model.PCFPipeline : model.noPCFPipeline);
 		vkCmdBindDescriptorSets(cmdBuf, VK_PIPELINE_BIND_POINT_GRAPHICS, model.pipelineLayout, 0, 1, &model.shadowDescSet, 0, nullptr);
 
 		//render model
@@ -1870,23 +1901,29 @@ private:
 
 		ImGui::Begin("Demo - Cascaded Shadow Mapping");
 
-			ImGui::InputFloat3("Shadow Eye", shadowVars.eye);
-			ImGui::InputFloat("Shadow Point", &shadowVars.point);
-			ImGui::InputFloat("Shadow Near", &shadowVars.near);
-			ImGui::InputFloat("Shadow Far", &shadowVars.far);
+			ImGui::InputFloat3("Light Position", shadowVars.eye);
+			ImGui::InputFloat("Near", &shadowVars.near);
+			ImGui::InputFloat("Far", &shadowVars.far);
+			ImGui::SliderInt("No. of Splits: ", &shadowVars.splits, 1, 4);
+			ImGui::SliderFloat("Split Coefficient: ", &shadowVars.splitCoefficient, 0.0f, 1.0f);
 			ImGui::Checkbox("Enable PCF", &usePCF);
+			ImGui::Checkbox("Enable Debug visualisation", &debugColors);
 
 			if (ImGui::Button("Re-compile Shader"))
 				isShaderLatest = false;
 
-			for (int i = 0; i < NUM_SPLITS; i++) 
-				ImGui::Image(model.debugDescSet[i], ImVec2(SHADOW_MAP_SIZE * pow(0.5, NUM_SPLITS == 1? 1 : NUM_SPLITS / 2), SHADOW_MAP_SIZE * pow(0.5, NUM_SPLITS == 1 ? 1 : NUM_SPLITS / 2)), ImVec2(0.0f, 1.0f), ImVec2(1.0f, 0.0f));
+			for (int i = 0; i < shadowVars.splits; i++) {
+				ImGui::Image(model.debugDescSet[i], ImVec2(SHADOW_MAP_SIZE * 0.25, SHADOW_MAP_SIZE * 0.25), ImVec2(1.0f, 0.0f));
+				if (i != shadowVars.splits - 1) ImGui::SameLine();
+			}
+
 
 			if (ImGui::Button("Exit"))
 				glfwSetWindowShouldClose(app.window, true);
 
 
 		ImGui::End();
+
 
 		ImGui::Render();
 		ImDrawData* drawData = ImGui::GetDrawData();
@@ -1966,10 +2003,6 @@ private:
 
 		result = vkQueuePresentKHR(queues.graphics, &presentInfo);
 
-		auto latestTime = std::chrono::high_resolution_clock::now();
-		updateUniformBuffer(currentFrame, std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count());
-		lastTime = latestTime;
-
 		if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR || framebufferResized) {
 			framebufferResized = false;
 			recreateSwapChain();
@@ -1981,41 +2014,53 @@ private:
 		currentFrame = (currentFrame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	void updateUniformBuffer(uint32_t currentImage, float deltaTime) {
-		camera.update(deltaTime);
-
+	void updateUniformBuffers(uint32_t currentImage) {
 		UniformBufferObject ubo{};
 		ubo.model = glm::scale(glm::mat4(1.0f), sponzaScaleMatrix);
 		ubo.viewProj = camera.getViewMatrix();
-		glm::mat4 proj = glm::perspective(glm::radians(FOV), swapchain.extent.width / (float)swapchain.extent.height, NEAR_PLANE, FAR_PLANE);
+		glm::mat4 proj = glm::perspective(glm::radians(60.0f), swapchain.extent.width / (float)swapchain.extent.height, shadowVars.near, shadowVars.far);
 		proj[1][1] *= -1;
 		ubo.viewProj = proj * ubo.viewProj;
 		ubo.camPos = camera.position;
-		ubo.lightPos = LIGHT_POSITION;
-		for (int i = 0; i < NUM_SPLITS; i++) {
-			ubo.far[i] = csmData.far[i];
-			ubo.lightViewProj[i] = csmData.frusta[i];
-		}
+		ubo.lightPos = glm::vec3(shadowVars.eye[0], shadowVars.eye[1], shadowVars.eye[2]);
 		memcpy(uniformBuffersMapped[currentFrame], &ubo, sizeof(ubo));
+		
+		ShadowUniformBufferObject subo{};
+		subo.far.x = csmData.far[0];
+		subo.far.y = csmData.far[1];
+		subo.far.z = csmData.far[2];
+		subo.far.w = csmData.far[3];
+		subo.lightViewProj[0] = csmData.frusta[0];
+		subo.lightViewProj[1] = csmData.frusta[1];
+		subo.lightViewProj[2] = csmData.frusta[2];
+		subo.lightViewProj[3] = csmData.frusta[3];
+		memcpy(shadowUniformBufferMapped, &subo, sizeof(subo));
 	}
 
 	void mainLoop() {
 		while (!glfwWindowShouldClose(app.window)) {
-			csmData.update(
-				camera,
-				glm::vec3(0.0f) - LIGHT_POSITION,
-				NUM_SPLITS,
-				NEAR_PLANE,
-				FAR_PLANE,
-				(float)(swapchain.extent.width) / (float)(swapchain.extent.height)
-			);
-			performShadowRender();
-
 			if (!isShaderLatest) {
 				createGraphicsPipelines();
 			}
 
+			auto latestTime = std::chrono::high_resolution_clock::now();
+			camera.update(std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count());
+			lastTime = latestTime;
+
+			csmData.update(
+				camera,
+				glm::normalize(glm::vec3(0.0f) - glm::vec3(shadowVars.eye[0], shadowVars.eye[1], shadowVars.eye[2])),
+				shadowVars.splits,
+				shadowVars.near,
+				shadowVars.far,
+				(float)(swapchain.extent.width) / (float)(swapchain.extent.height),
+				shadowVars.splitCoefficient
+			);
+
+			updateUniformBuffers(currentFrame);
+
 			glfwPollEvents();
+			performShadowRender();
 			drawFrame();
 		}
 
@@ -2156,22 +2201,28 @@ private:
 			vkFreeMemory(app.device, uniformBuffersMemory[i], nullptr);
 		}
 
+		vkDestroyBuffer(app.device, shadowUniformBuffer, nullptr);
+		vkFreeMemory(app.device, shadowUniformBufferMemory, nullptr);
+
 		ImGui_ImplVulkan_Shutdown();
 		ImGui_ImplGlfw_Shutdown();
 		ImGui::DestroyContext();
 
 		vkDestroySampler(app.device, shadow.sampler, nullptr);
+		for (int i = 0; i < MAX_SPLITS; i++)	vkDestroyImageView(app.device, shadow.intermediateViews[i], nullptr);
 		vkDestroyImageView(app.device, shadow.view, nullptr);
 		vkDestroyImage(app.device, shadow.image, nullptr);
 		vkFreeMemory(app.device, shadow.memory, nullptr);
 
 		vkDestroyDescriptorSetLayout(app.device, model.fullDSL, nullptr);
 		vkDestroyDescriptorSetLayout(app.device, model.shadowDSL, nullptr);
+		vkDestroyDescriptorSetLayout(app.device, model.debugShadowDSL, nullptr);
 
 		vkDestroyDescriptorPool(app.device, model.descriptorPool, nullptr);
 
 		vkDestroyPipeline(app.device, model.noPCFPipeline, nullptr);
 		vkDestroyPipeline(app.device, model.PCFPipeline, nullptr);
+		vkDestroyPipeline(app.device, model.debugPipeline, nullptr);
 		vkDestroyPipeline(app.device, shadowPass.pipeline, nullptr);
 		vkDestroyPipelineLayout(app.device, model.pipelineLayout, nullptr);
 		vkDestroyPipelineLayout(app.device, shadowPass.pipelineLayout, nullptr);
