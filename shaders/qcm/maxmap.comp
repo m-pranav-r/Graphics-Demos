@@ -1,0 +1,27 @@
+#version 450
+
+layout (binding = 0, r8) uniform readonly image2D inputMaxmap;
+layout (binding = 1, r8) uniform image2D outputMaxmap;
+
+layout(local_size_x = 8, local_size_y = 8) in;
+
+void main(){
+	//vec2 idx = gl_WorkGroupSize.x * gl_GlobalInvocationID.xy + gl_LocalInvocationID.xy;
+	vec2 idx = gl_GlobalInvocationID.xy;
+	//uint inputSize = gl_NumWorkGroups.x * gl_WorkGroupSize.x; 
+
+	vec2 offset = vec2(0, 1);
+
+	float color = max(
+			max(
+				imageLoad(inputMaxmap, ivec2(idx * 2 + offset.xx)).r,
+				imageLoad(inputMaxmap, ivec2(idx * 2 + offset.xy)).r
+			),
+			max(
+				imageLoad(inputMaxmap, ivec2(idx * 2 + offset.yy)).r,
+				imageLoad(inputMaxmap, ivec2(idx * 2 + offset.yx)).r
+			)
+		);
+
+	imageStore(outputMaxmap, ivec2(idx), color.rrrr);
+}

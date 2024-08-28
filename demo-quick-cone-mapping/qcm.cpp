@@ -28,7 +28,8 @@ bool isDebugEnv = true;
 bool isDebugEnv = false;
 #endif
 
-#define HEIGHTMAP_FORMAT VK_FORMAT_R8_SRGB
+#define HEIGHTMAP_FORMAT VK_FORMAT_R8_UNORM
+#define MAXMAP_COUNT 4
 
 struct Vertex {
 	glm::vec3 pos;
@@ -139,6 +140,7 @@ private:
 		VkQueue graphics;
 		VkQueue present;
 		VkQueue transfer;
+		VkQueue compute;
 	} queues;
 
 	struct {
@@ -155,19 +157,22 @@ private:
 		std::vector<VkDescriptorSet> descSets, debugDescSets;
 		VkPipeline pipeline, debugPipeline;
 		VkDescriptorPool descriptorPool;
-	} finalRender;
+	} compute, finalRender;
 
 	struct {
 		VkImage image;
-		VkImageView view;
+		std::vector<VkImageView> views;
+		VkImageView totalView;
 		VkSampler sampler;
 		VkDeviceMemory memory;
 		void* pixels;
 		int width, height, channels;
+		bool freshlyRendered = true;
 	} height;
 
 	VkCommandPool commandPool;
 	VkCommandPool transferPool;
+	VkCommandPool computePool;
 	uint32_t mipLevels;
 
 	struct {
@@ -310,7 +315,7 @@ private:
 			color.memory
 		);
 
-		color.view = createImageView(color.image, swapchain.imageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+		color.view = createImageView(color.image, swapchain.imageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1, 0);
 
 		memHelper.createImage(
 			swapchain.extent.width,
@@ -324,7 +329,7 @@ private:
 			depth.image,
 			depth.memory
 		);
-		depth.view = createImageView(depth.image, deviceHelper.findDepthFormat(), VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+		depth.view = createImageView(depth.image, deviceHelper.findDepthFormat(), VK_IMAGE_ASPECT_DEPTH_BIT, 1, 0);
 		VkCommandBuffer commandBuffer = commHelper.beginSingleTimeCommands(commandPool);
 
 		memHelper.transitionImageLayout(commandBuffer, depth.image, deviceHelper.findDepthFormat(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
@@ -338,6 +343,14 @@ private:
 		createDescriptorPool();
 
 		createDescriptorSets();
+
+		//cone map generation stuff
+			//stuff for generating minmax mipmap here
+			setupMaxmapsRender();
+			renderMaxmaps();
+			//stuff for generating conemap here
+			setupConemapRender();
+			renderConemap();
 
 		setupUI();
 
@@ -565,14 +578,14 @@ private:
 		return VK_SAMPLE_COUNT_1_BIT;
 	}
 
-	VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels, uint32_t arrayLayerCount = 1, uint32_t baseLayer = 0) {
+	VkImageView createImageView(VkImage image, VkFormat format, VkImageAspectFlags aspectFlags, uint32_t mipLevels, uint32_t baseMipLevel, uint32_t arrayLayerCount = 1, uint32_t baseLayer = 0) {
 		VkImageViewCreateInfo viewInfo{};
 		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
 		viewInfo.image = image;
 		viewInfo.viewType = arrayLayerCount == 1 ? VK_IMAGE_VIEW_TYPE_2D : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
 		viewInfo.format = format;
 		viewInfo.subresourceRange.aspectMask = aspectFlags;
-		viewInfo.subresourceRange.baseMipLevel = 0;
+		viewInfo.subresourceRange.baseMipLevel = baseMipLevel;
 		viewInfo.subresourceRange.levelCount = mipLevels;
 		viewInfo.subresourceRange.baseArrayLayer = baseLayer;
 		viewInfo.subresourceRange.layerCount = arrayLayerCount;
@@ -595,6 +608,8 @@ private:
 			std::cout << stbi_failure_reason() << "\n" << "../textures/quick-cone-mapping/candidate.png" << "\n";
 			throw std::runtime_error("failed to load image into mem!\n");
 		}
+
+		height.views.resize(MAXMAP_COUNT);
 
 		VkCommandPool tempPool;
 
@@ -631,11 +646,11 @@ private:
 		memHelper.createImage(
 			height.width,
 			height.height,
-			1,
+			MAXMAP_COUNT,
 			VK_SAMPLE_COUNT_1_BIT,
 			HEIGHTMAP_FORMAT,
 			VK_IMAGE_TILING_OPTIMAL,
-			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+			VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT,
 			VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
 			height.image,
 			height.memory
@@ -649,7 +664,7 @@ private:
 			HEIGHTMAP_FORMAT,
 			VK_IMAGE_LAYOUT_UNDEFINED,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			1
+			MAXMAP_COUNT
 		);
 
 		memHelper.copyBufferToImage(
@@ -657,7 +672,17 @@ private:
 			stagingBuffer,
 			height.image,
 			static_cast<uint32_t>(height.width),
-			static_cast<uint32_t>(height.height)
+			static_cast<uint32_t>(height.height),
+			0
+		);
+
+		memHelper.transitionImageLayout(
+			commandBuffer,
+			height.image,
+			HEIGHTMAP_FORMAT,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			VK_IMAGE_LAYOUT_GENERAL,
+			MAXMAP_COUNT
 		);
 
 		commHelper.endSingleTimeCommands(commandBuffer, tempPool, queues.graphics);
@@ -667,19 +692,44 @@ private:
 
 		commandBuffer = commHelper.beginSingleTimeCommands(tempPool);
 
+		/*
 		memHelper.transitionImageLayout(
 			commandBuffer,
 			height.image,
 			HEIGHTMAP_FORMAT,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-			1
+			MAXMAP_COUNT
 		);
+		*/
 
 		commHelper.endSingleTimeCommands(commandBuffer, tempPool, queues.graphics);
 
 		//create image view
-		height.view = createImageView(height.image, HEIGHTMAP_FORMAT, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+		VkImageViewCreateInfo viewInfo{};
+		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.image = height.image;
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format = HEIGHTMAP_FORMAT;
+		viewInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		viewInfo.subresourceRange.levelCount = 1;
+		viewInfo.subresourceRange.baseArrayLayer = 0;
+		viewInfo.subresourceRange.layerCount = 1;
+		
+		for (int i = 0; i < MAXMAP_COUNT; i++) {
+			viewInfo.subresourceRange.baseMipLevel = i;
+
+			if (vkCreateImageView(app.device, &viewInfo, nullptr, &height.views[i]) != VK_SUCCESS) {
+				throw std::runtime_error("failed to create maxmap image views!");
+			}
+		}
+
+		viewInfo.subresourceRange.levelCount = MAXMAP_COUNT;
+		viewInfo.subresourceRange.baseMipLevel = 0;
+
+		if (vkCreateImageView(app.device, &viewInfo, nullptr, &height.totalView) != VK_SUCCESS) {
+			throw std::runtime_error("failed to create maxmap image view!");
+		}
 
 		//create sampler
 		VkSamplerCreateInfo samplerInfo{};
@@ -789,18 +839,274 @@ private:
 			.descriptorCount = 2
 		};
 
-		std::array<VkDescriptorPoolSize, 2> poolSizes = { uniformPoolInfo, texturePoolInfo };
+		VkDescriptorPoolSize computePoolInfo = {
+			.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
+			.descriptorCount = MAXMAP_COUNT * 2
+		};
+
+		std::array<VkDescriptorPoolSize, 3> poolSizes = { uniformPoolInfo, texturePoolInfo, computePoolInfo };
 
 		VkDescriptorPoolCreateInfo poolInfo{};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		poolInfo.pPoolSizes = poolSizes.data();
-		poolInfo.poolSizeCount = 2;
-		poolInfo.maxSets = 2;
+		poolInfo.poolSizeCount = 3;
+		poolInfo.maxSets = 10;
 		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 
 		if (vkCreateDescriptorPool(app.device, &poolInfo, nullptr, &finalRender.descriptorPool) != VK_SUCCESS) {
 			throw std::runtime_error("failed to create descriptor pool!");
 		}
+	}
+
+	void setupMaxmapsRender() {
+		vkGetDeviceQueue(app.device, deviceHelper.getQueueFamilyIndices().computeFamily.value(), 0, &queues.compute);
+
+		/*
+			plan: 
+				use previous level to generate next maxmap level
+
+			inputs:
+				-latest maxmap dimension		(read)			(push constant)			(this is actually redundant as dimensions can be baked into the invocations sizes)
+				-previous maxmap textures		(read)			(storage image)
+
+			outputs:
+				-latest maxmap texture			(write)			(storage image)
+		*/
+
+		//set layout
+		VkDescriptorSetLayoutBinding inputMaxmapBinding;
+		inputMaxmapBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		inputMaxmapBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+		inputMaxmapBinding.descriptorCount = 1;
+		inputMaxmapBinding.binding = 0;
+
+		VkDescriptorSetLayoutBinding outputMaxmapBinding;
+		outputMaxmapBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		outputMaxmapBinding.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+		outputMaxmapBinding.descriptorCount = 1;
+		outputMaxmapBinding.binding = 1;
+
+		std::array<VkDescriptorSetLayoutBinding, 2> computeSetLayoutBindings = {
+			inputMaxmapBinding,
+			outputMaxmapBinding,
+		};
+
+		VkDescriptorSetLayoutCreateInfo computeLayout = {
+			.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+			.bindingCount = 2,
+			.pBindings = computeSetLayoutBindings.data()
+		};
+
+		VkResult result = vkCreateDescriptorSetLayout(app.device, &computeLayout, nullptr, &compute.DSL);
+		if (result != VK_SUCCESS) {
+			throw std::runtime_error("failed to create compute desc layout!");
+		}
+
+		VkPipelineLayoutCreateInfo compPipelineLayoutInfo{};
+		compPipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		compPipelineLayoutInfo.setLayoutCount = 1;
+		compPipelineLayoutInfo.pSetLayouts = &compute.DSL;
+
+		result = vkCreatePipelineLayout(app.device, &compPipelineLayoutInfo, nullptr, &compute.pipelineLayout);
+		if (result != VK_SUCCESS) {
+			throw std::runtime_error("failed to create compute pipeline layout!");
+		}
+
+		compute.descSets.resize(MAXMAP_COUNT - 1);
+		std::vector<VkDescriptorSetLayout> computeDSLs(MAXMAP_COUNT, compute.DSL);
+
+		VkDescriptorSetAllocateInfo compDescSetAllocInfo{};
+		compDescSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		compDescSetAllocInfo.pNext = nullptr;
+		compDescSetAllocInfo.descriptorPool = finalRender.descriptorPool;
+		compDescSetAllocInfo.descriptorSetCount = MAXMAP_COUNT - 1;
+		compDescSetAllocInfo.pSetLayouts = computeDSLs.data();
+
+		result = vkAllocateDescriptorSets(app.device, &compDescSetAllocInfo, compute.descSets.data());
+		if (result != VK_SUCCESS) {
+			throw std::runtime_error("failed to allocate compute descriptor sets!");
+		}
+
+		VkDescriptorImageInfo inputMaxmapInfo{};
+		inputMaxmapInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;				//todo: this isnt optimal
+		inputMaxmapInfo.sampler = height.sampler;
+
+		VkDescriptorImageInfo outputMaxmapInfo{};
+		outputMaxmapInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;				//todo: this isnt optimal
+		outputMaxmapInfo.sampler = height.sampler;
+
+		std::array< VkWriteDescriptorSet, 2> compDescWrites{};
+		
+		compDescWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		compDescWrites[0].dstBinding = 0;
+		compDescWrites[0].dstArrayElement = 0;
+		compDescWrites[0].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		compDescWrites[0].descriptorCount = 1;
+		compDescWrites[0].pImageInfo = &inputMaxmapInfo;
+
+		compDescWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		compDescWrites[1].dstBinding = 1;
+		compDescWrites[1].dstArrayElement = 0;
+		compDescWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+		compDescWrites[1].descriptorCount = 1;
+		compDescWrites[1].pImageInfo = &outputMaxmapInfo;
+
+		for (int i = 0; i < MAXMAP_COUNT - 1; i++) {
+			inputMaxmapInfo.imageView = height.views[i];
+			outputMaxmapInfo.imageView = height.views[i+1];
+
+			compDescWrites[0].dstSet = compute.descSets[i];
+			compDescWrites[1].dstSet = compute.descSets[i];
+
+			vkUpdateDescriptorSets(app.device, 2, compDescWrites.data(), 0, nullptr);
+		}
+		
+		ShaderHelper computeShader;
+		computeShader.init("compute", Type::COMP, app.device);
+		computeShader.readCompiledSPIRVAndCreateShaderModule("../shaders/qcm/maxmap.comp.spv");
+
+		VkPipelineShaderStageCreateInfo compShaderStageInfo{};
+		compShaderStageInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		compShaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+		compShaderStageInfo.module = computeShader.shaderModule;
+		compShaderStageInfo.pName = "main";
+
+		//make pipeline
+		VkComputePipelineCreateInfo computePipelineInfo{
+			.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+			.pNext = nullptr,
+			.stage = compShaderStageInfo,
+			.layout = compute.pipelineLayout,
+		};
+
+		result = vkCreateComputePipelines(app.device, nullptr, 1, &computePipelineInfo, nullptr, &compute.pipeline);
+		if (result != VK_SUCCESS) {
+			throw std::runtime_error("failed to create compute pipeline!");
+		}
+
+		vkDestroyShaderModule(app.device, computeShader.shaderModule, nullptr);
+	}
+
+	void renderMaxmaps() {
+
+		commHelper.createCommandPool(VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, QUEUE_TYPE_COMPUTE, computePool);
+
+		VkCommandBufferAllocateInfo computeCommandBufferAllocateInfo{};
+		computeCommandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+		computeCommandBufferAllocateInfo.pNext = nullptr;
+		computeCommandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+		computeCommandBufferAllocateInfo.commandPool = computePool;
+		computeCommandBufferAllocateInfo.commandBufferCount = MAXMAP_COUNT;
+
+		std::vector<VkCommandBuffer>cmptCmdBuf;	cmptCmdBuf.resize(MAXMAP_COUNT);
+
+		VkResult result = vkAllocateCommandBuffers(app.device, &computeCommandBufferAllocateInfo, cmptCmdBuf.data());
+		if (result != VK_SUCCESS) {
+			throw std::runtime_error("failed to allocate command buffer for compute!");
+		}
+
+		std::vector<VkSemaphore> maxmapSemaphores;	maxmapSemaphores.resize(MAXMAP_COUNT - 1);
+
+		VkSemaphoreCreateInfo computeSemaphoreInfo{
+			.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO,
+			.pNext = nullptr,
+		};
+
+		for(int i = 0; i < MAXMAP_COUNT - 1; i++)
+			vkCreateSemaphore(app.device, &computeSemaphoreInfo, nullptr, &maxmapSemaphores[i]);
+
+		//culling nunchi etthesindhi
+		uint32_t invocationCountX = height.width / 2;														//512
+		uint32_t invocationCountY = height.height / 2;														//512
+
+		uint32_t workgroupSizePerDim = 8;
+
+		uint32_t workgroupCountX = (invocationCountX + workgroupSizePerDim - 1) / workgroupSizePerDim;		//64
+		uint32_t workgroupCountY = (invocationCountY + workgroupSizePerDim - 1) / workgroupSizePerDim;		//64
+
+		uint32_t test = workgroupCountX / pow(2, 0);
+
+		for (int i = 0; i < MAXMAP_COUNT - 1; i++) {
+			VkCommandBufferBeginInfo beginInfo{};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+			if (vkBeginCommandBuffer(cmptCmdBuf[i], &beginInfo) != VK_SUCCESS) {
+				throw std::runtime_error("failed to begin recording compute command buffer!");
+			}
+
+			vkCmdBindPipeline(cmptCmdBuf[i], VK_PIPELINE_BIND_POINT_COMPUTE, compute.pipeline);
+
+			vkCmdBindDescriptorSets(cmptCmdBuf[i], VK_PIPELINE_BIND_POINT_COMPUTE, compute.pipelineLayout, 0, 1, &compute.descSets[i], 0, 0);
+			vkCmdDispatch(cmptCmdBuf[i], workgroupCountX / pow(2, i), workgroupCountY / pow(2, i), 1);	//fix: FIX!
+
+			vkEndCommandBuffer(cmptCmdBuf[i]);
+
+			VkSubmitInfo submitInfo{};
+			submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+			VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT };
+			
+			submitInfo.waitSemaphoreCount = 1;
+			if (i != 0) {
+				submitInfo.waitSemaphoreCount = 1;
+				submitInfo.pWaitSemaphores = &maxmapSemaphores[i - 1];
+			}
+			else {
+				submitInfo.waitSemaphoreCount = 0;
+			}
+			submitInfo.signalSemaphoreCount = 1;
+			submitInfo.pSignalSemaphores = &maxmapSemaphores[i];
+			submitInfo.pWaitDstStageMask = waitStages;
+
+			submitInfo.commandBufferCount = 1;
+			submitInfo.pCommandBuffers = &cmptCmdBuf[i];
+
+			if (vkQueueSubmit(queues.compute, 1, &submitInfo, nullptr) != VK_SUCCESS) {
+				throw std::runtime_error("failed to submit one of the compute command buffers!");
+			}
+		}
+
+		VkCommandBufferBeginInfo beginInfo{};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+		if (vkBeginCommandBuffer(cmptCmdBuf[MAXMAP_COUNT - 1], &beginInfo) != VK_SUCCESS) {
+			throw std::runtime_error("failed to begin recording compute command buffer!");
+		}
+
+		VkImageMemoryBarrier maxmapBarrier{};
+		maxmapBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		maxmapBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		maxmapBarrier.subresourceRange.baseArrayLayer = 0;
+		maxmapBarrier.subresourceRange.layerCount = 1;
+		maxmapBarrier.subresourceRange.baseMipLevel = 0;
+		maxmapBarrier.subresourceRange.levelCount = MAXMAP_COUNT;
+		maxmapBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+		maxmapBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		maxmapBarrier.image = height.image;
+		maxmapBarrier.srcQueueFamilyIndex = deviceHelper.getQueueFamilyIndices().computeFamily.value();
+		maxmapBarrier.dstQueueFamilyIndex = deviceHelper.getQueueFamilyIndices().graphicsFamily.value();
+		
+		maxmapBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		maxmapBarrier.dstAccessMask = 0;
+
+		vkCmdPipelineBarrier(
+			cmptCmdBuf[MAXMAP_COUNT - 1],
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
+			0,
+			0, nullptr,
+			0, nullptr,
+			1, &maxmapBarrier
+		);
+
+		commHelper.endSingleTimeCommands(cmptCmdBuf[MAXMAP_COUNT - 1], computePool, queues.compute);
+	}
+
+	void setupConemapRender() {
+
+	}
+
+	void renderConemap() {
+
 	}
 
 	void createDescriptorSets() {
@@ -827,7 +1133,7 @@ private:
 
 			VkDescriptorImageInfo heightImageInfo{};
 			heightImageInfo.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			heightImageInfo.imageView = height.view;
+			heightImageInfo.imageView = height.totalView;
 			heightImageInfo.sampler = height.sampler;
 
 			std::array<VkWriteDescriptorSet, 2> descWrites{};
@@ -945,6 +1251,36 @@ private:
 			.pColorAttachments = &colorAttachment,
 			.pDepthAttachment = &depthAttachment,
 		};
+
+		//maxmap transition if necessary
+		if (height.freshlyRendered) {
+			height.freshlyRendered = false;
+
+			VkImageMemoryBarrier maxmapBarrier{};
+			maxmapBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			maxmapBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+			maxmapBarrier.subresourceRange.baseArrayLayer = 0;
+			maxmapBarrier.subresourceRange.layerCount = 1;
+			maxmapBarrier.subresourceRange.baseMipLevel = 0;
+			maxmapBarrier.subresourceRange.levelCount = MAXMAP_COUNT;
+			maxmapBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+			maxmapBarrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			maxmapBarrier.image = height.image;
+			maxmapBarrier.srcQueueFamilyIndex = deviceHelper.getQueueFamilyIndices().computeFamily.value();
+			maxmapBarrier.dstQueueFamilyIndex = deviceHelper.getQueueFamilyIndices().graphicsFamily.value();
+
+			maxmapBarrier.srcAccessMask = 0;
+			maxmapBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+			vkCmdPipelineBarrier(
+				cmdBuf,
+				VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+				0,
+				0, nullptr,
+				0, nullptr,
+				1, &maxmapBarrier
+			);
+		}
 
 		//color image transition
 		VkImageMemoryBarrier colorImageStartTransitionBarrier = {
@@ -1195,7 +1531,6 @@ private:
 		cleanupSwapChain();
 
 		deviceHelper.createSwapchain(swapchain.swapChain, app.window, swapchain.images, swapchain.imageFormat, swapchain.extent);
-		//add routine here to recreate device swapchain
 		createImageViews();
 
 		memHelper.createImage(
@@ -1211,7 +1546,7 @@ private:
 			color.memory
 		);
 
-		color.view = createImageView(color.image, swapchain.imageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1);
+		color.view = createImageView(color.image, swapchain.imageFormat, VK_IMAGE_ASPECT_COLOR_BIT, 1, 0);
 
 		memHelper.createImage(
 			swapchain.extent.width,
@@ -1225,7 +1560,7 @@ private:
 			depth.image,
 			depth.memory
 		);
-		depth.view = createImageView(depth.image, deviceHelper.findDepthFormat(), VK_IMAGE_ASPECT_DEPTH_BIT, 1);
+		depth.view = createImageView(depth.image, deviceHelper.findDepthFormat(), VK_IMAGE_ASPECT_DEPTH_BIT, 1, 0);
 		VkCommandBuffer commandBuffer = commHelper.beginSingleTimeCommands(commandPool);
 
 		memHelper.transitionImageLayout(commandBuffer, depth.image, deviceHelper.findDepthFormat(), VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, 1);
@@ -1275,7 +1610,7 @@ private:
 		cleanupSwapChain();
 
 		vkDestroySampler(app.device, height.sampler, nullptr);
-		vkDestroyImageView(app.device, height.view, nullptr);
+		vkDestroyImageView(app.device, height.views[0], nullptr);
 		vkDestroyImage(app.device, height.image, nullptr);
 		vkFreeMemory(app.device, height.memory, nullptr);
 

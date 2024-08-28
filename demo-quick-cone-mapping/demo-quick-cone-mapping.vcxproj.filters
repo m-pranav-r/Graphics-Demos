@@ -24,6 +24,9 @@
     <None Include="..\shaders\qcm\final.vert">
       <Filter>Shaders</Filter>
     </None>
+    <None Include="..\shaders\qcm\maxmap.comp">
+      <Filter>Shaders</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\textures\quick-cone-mapping\candidate.png">

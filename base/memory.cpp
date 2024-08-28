@@ -154,6 +154,13 @@ void MemoryHelper::transitionImageLayout(VkCommandBuffer commandBuffer, VkImage 
 		srcStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 		dstStage = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 	}
+	else if (oldLayout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_GENERAL) {
+		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+		srcStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		dstStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+	}
 	else if (oldLayout == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && newLayout == VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL) {
 		barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 		barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
@@ -194,7 +201,7 @@ void MemoryHelper::transitionImageLayout(VkCommandBuffer commandBuffer, VkImage 
 }
 
 //REMEMBER TO *SUBMIT* THE CONTENTS RECORDED IN THE COMMAND BUFFER!!
-void MemoryHelper::copyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height)
+void MemoryHelper::copyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer buffer, VkImage image, uint32_t width, uint32_t height, uint32_t mipLevel)
 {
 	if (commandBuffer == nullptr) {
 		throw std::runtime_error("invalide command buffer!");
@@ -205,7 +212,7 @@ void MemoryHelper::copyBufferToImage(VkCommandBuffer commandBuffer, VkBuffer buf
 	region.bufferImageHeight = 0;
 
 	region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	region.imageSubresource.mipLevel = 0;
+	region.imageSubresource.mipLevel = mipLevel;
 	region.imageSubresource.baseArrayLayer = 0;
 	region.imageSubresource.layerCount = 1;
 

@@ -141,6 +141,7 @@
   <ItemGroup>
     <None Include="..\shaders\qcm\final.frag" />
     <None Include="..\shaders\qcm\final.vert" />
+    <None Include="..\shaders\qcm\maxmap.comp" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="..\textures\quick-cone-mapping\candidate.png" />
