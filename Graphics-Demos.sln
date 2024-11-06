@@ -20,6 +20,8 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "demo-cascaded-shadow-mappin
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "demo-quick-cone-mapping", "demo-quick-cone-mapping\demo-quick-cone-mapping.vcxproj", "{77C616C0-B395-4103-A5DA-7AA91D419B40}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test-dx12", "test-dx12\test-dx12.vcxproj", "{459A02C1-6B1E-4412-8828-52B292E6A4CA}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
@@ -68,6 +70,14 @@ Global
 		{77C616C0-B395-4103-A5DA-7AA91D419B40}.Release|x64.Build.0 = Release|x64
 		{77C616C0-B395-4103-A5DA-7AA91D419B40}.Release|x86.ActiveCfg = Release|Win32
 		{77C616C0-B395-4103-A5DA-7AA91D419B40}.Release|x86.Build.0 = Release|Win32
+		{459A02C1-6B1E-4412-8828-52B292E6A4CA}.Debug|x64.ActiveCfg = Debug|x64
+		{459A02C1-6B1E-4412-8828-52B292E6A4CA}.Debug|x64.Build.0 = Debug|x64
+		{459A02C1-6B1E-4412-8828-52B292E6A4CA}.Debug|x86.ActiveCfg = Debug|Win32
+		{459A02C1-6B1E-4412-8828-52B292E6A4CA}.Debug|x86.Build.0 = Debug|Win32
+		{459A02C1-6B1E-4412-8828-52B292E6A4CA}.Release|x64.ActiveCfg = Release|x64
+		{459A02C1-6B1E-4412-8828-52B292E6A4CA}.Release|x64.Build.0 = Release|x64
+		{459A02C1-6B1E-4412-8828-52B292E6A4CA}.Release|x86.ActiveCfg = Release|Win32
+		{459A02C1-6B1E-4412-8828-52B292E6A4CA}.Release|x86.Build.0 = Release|Win32
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
