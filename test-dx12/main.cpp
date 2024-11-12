@@ -140,7 +140,7 @@ public:
 		//creating the command queue(?)
 		D3D12_COMMAND_QUEUE_DESC queueDesc = {};
 		queueDesc.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE;
-		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT; //explore: what is 'direct' exactly
+		queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
 
 		TIF(mainDevice->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&mainCommandQueue)));
 
@@ -151,9 +151,9 @@ public:
 		swapChainDesc.BufferDesc.Height = height;
 		swapChainDesc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 		swapChainDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;	//explore: what are the other modes
-		swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;		//explore: what do the other swap modes do
+		swapChainDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
 		swapChainDesc.OutputWindow = glfwGetWin32Window(window);
-		swapChainDesc.SampleDesc.Count = 1;								//explore: what
+		swapChainDesc.SampleDesc.Count = 1;
 		swapChainDesc.Windowed = TRUE;
 
 		ComPtr<IDXGISwapChain> swapChain;
@@ -222,12 +222,10 @@ public:
 #else
 			UINT compileFlags = 0;
 #endif
-			//explore: what are these versions, maybe shader models?
 			TIF(D3DCompileFromFile(L"../shaders/dx12/shaders.hlsl", nullptr, nullptr, "VSMain", "vs_5_0", compileFlags, 0, &vertexShader, nullptr));
 			TIF(D3DCompileFromFile(L"../shaders/dx12/shaders.hlsl", nullptr, nullptr, "PSMain", "ps_5_0", compileFlags, 0, &pixelShader, nullptr));
 
 			D3D12_INPUT_ELEMENT_DESC inputElementDescs[] = {
-				//explore: look at what they *exactly* mean
 				{
 					"POSITION",										//SemanticName
 					0,												//SemanticIndex
@@ -293,7 +291,7 @@ public:
 					IID_PPV_ARGS(&vertexBuffer)
 				)
 			);
-
+			
 			UINT8* pVertexDatabegin;
 			CD3DX12_RANGE readRange(0, 0);
 			TIF(vertexBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pVertexDatabegin)));
@@ -341,7 +339,7 @@ public:
 		ID3D12CommandList* ppCommandLists[] = { commList.Get() };
 		mainCommandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
 
-		TIF(mainSwapChain->Present(1, 0));			//explore: what do these mean
+		TIF(mainSwapChain->Present(1, 0));
 
 		WaitForPreviousFrame();
 	}
