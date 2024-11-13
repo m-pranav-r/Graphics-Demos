@@ -1369,7 +1369,7 @@ private:
 		drawables.clear();
 		drawables.shrink_to_fit();
 
-		std::cerr << "\nAll drawables processed.\n";
+		std::cerr << "\nDrawables processed:" << drawableHandles.size() << "\n";
 	}
 	/*
 	void createHDRIResources() {

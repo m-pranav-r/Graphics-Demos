@@ -18,9 +18,21 @@ A demo to demonstrate Quick Cone Mapping. In progress.
 
 A barebones render of the sponza scene rendered on a single thread. Repurposes the Galitef reader to process meshes. Intended to be used as a control to test against any further algorithms.
 
+### test-dx12
+
+A smoke-testing DirectX12 application used for testing purposes.
+
+### sponza-dx12
+
+A DirectX12 port of the 'sponza-brute' demo.
+
+## APIs Supported:
+- DirectX12
+- Vulkan
+
+
 ## Libraries Used:
 
-- Vulkan
 - GLFW
 - shaderc
 - fastgltf

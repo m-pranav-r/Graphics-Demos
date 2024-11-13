@@ -1,5 +1,4 @@
 #include <d3d12.h>
-//#include <DirectXMath.h>
 #include <wrl/client.h>
 #include <dxgi1_6.h>
 #include <d3dcompiler.h>
@@ -15,7 +14,6 @@
 #include "parser.h"
 #include "camera.h"
 
-//using namespace DirectX;
 using namespace Microsoft::WRL;
 
 struct Vertex {
@@ -40,18 +38,13 @@ struct MaterialBufferObject {
 
 const int MAX_FRAMES_IN_FLIGHT = 2;
 
-
 struct DrawableHandle {
 	ComPtr<ID3D12Resource> baseColorImage, metallicRoughnessImage, normalImage;
-	//VkImageView baseColorImageView, metallicRoughnessImageView, normalImageView;
-	//VkDeviceMemory baseColorMemory, metallicRoughnessMemory, normalMemory;
 	std::vector<Vertex> vertices;
 	ComPtr<ID3D12Resource> vertexBuffer, indexBuffer;
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView;
 	D3D12_INDEX_BUFFER_VIEW indexBufferView;
 	UINT descOffset;
-	//using committed resources so no direct memory stuff for now
-	//VkDeviceMemory vertexBufferMemory, indexBufferMemory; 
 	size_t indices;
 
 	bool isAlphaModeMask = false, hasNormal = false, hasMR = false, hasTangents = false;
@@ -63,7 +56,6 @@ inline void TIF(HRESULT hr)
 {
 	if (FAILED(hr))
 	{
-		// Set a breakpoint on this line to catch Win32 API errors.
 		throw std::exception();
 	}
 }
@@ -87,6 +79,7 @@ private:
 	ComPtr<ID3D12Resource> dsvResource;
 	ComPtr<ID3D12Resource> cbvResource;
 	ComPtr<ID3D12PipelineState> pipelineState;
+	ComPtr<ID3D12PipelineState> kookyPipelineState;
 
 	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle;
 	UINT srvOffsetTracker = 0;
@@ -138,16 +131,22 @@ public:
 		}
 		window = glfwCreateWindow(width, height, "DX12 Test", nullptr, nullptr);
 		glfwSetWindowUserPointer(window, this);
-		//glfwSetFramebufferSizeCallback(window, framebufferResizeCallback);
 
-		glfwSetKeyCallback(window, [](GLFWwindow* window, int key, int scancode, int action, int mods) {camera.processGLFWKeyboardEvent(window, key, scancode, action, mods); });
-		glfwSetCursorPosCallback(window, [](GLFWwindow* window, double x, double y) { camera.processGLFWMouseEvent(window, x, y); });
-		//glfwSetMouseButtonCallback(window, mouseButtonCallback);
+		glfwSetKeyCallback(window, 
+			[](GLFWwindow* window, int key, int scancode, int action, int mods) {
+				camera.processGLFWKeyboardEvent(window, key, scancode, action, mods); 
+			}
+		);
+		glfwSetCursorPosCallback(window, 
+			[](GLFWwindow* window, double x, double y) { 
+				camera.processGLFWMouseEvent(window, x, y); 
+			}
+		);
 		glfwSetInputMode(window, GLFW_RAW_MOUSE_MOTION, GLFW_TRUE);
 		glfwSetInputMode(window, GLFW_CURSOR, GLFW_CURSOR_DISABLED);
 
-		camera.velocity = glm::vec3(0.0f, 0.0f, 0.0f);
-		camera.position = glm::vec3(2.0f, 2.0f, 2.0f);
+		camera.velocity = glm::vec3(0.0f);
+		camera.position = glm::vec3(0.0f);
 		camera.pitch = 0;
 		camera.yaw = 0;
 		camera.scalingFactor = 2;
@@ -250,39 +249,15 @@ public:
 
 			CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(dsvHeap->GetCPUDescriptorHandleForHeapStart());
 
-			D3D12_HEAP_PROPERTIES dsHeapProps = {};
-			dsHeapProps.Type = D3D12_HEAP_TYPE_DEFAULT;
-			dsHeapProps.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
-			dsHeapProps.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-			dsHeapProps.CreationNodeMask = 0;
-			dsHeapProps.VisibleNodeMask = 0;
-
-			D3D12_RESOURCE_DESC dsResDesc = {};
-			dsResDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-			dsResDesc.Alignment = 0;
-			dsResDesc.Width = width;
-			dsResDesc.Height = height;
-			dsResDesc.DepthOrArraySize = 1;
-			dsResDesc.MipLevels = 0;
-			dsResDesc.Format = DXGI_FORMAT_D32_FLOAT;
-			dsResDesc.SampleDesc.Count = 1;
-			dsResDesc.SampleDesc.Quality = 0;
-			dsResDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-			dsResDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE;
-
-			/*
-			CD3DX12_RESOURCE_DESC dsResDesc = CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, width, height, 1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
-			*/
-
 			D3D12_CLEAR_VALUE clearValueDs = {};
 			clearValueDs.Format = DXGI_FORMAT_D32_FLOAT;
 			clearValueDs.DepthStencil.Depth = 1.0f;
 			clearValueDs.DepthStencil.Stencil = 0;
 
 			mainDevice->CreateCommittedResource(
-				&dsHeapProps,
+				&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 				D3D12_HEAP_FLAG_NONE,
-				&dsResDesc,
+				&CD3DX12_RESOURCE_DESC::Tex2D(DXGI_FORMAT_D32_FLOAT, width, height, 1, 1, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
 				D3D12_RESOURCE_STATE_DEPTH_WRITE,
 				&clearValueDs,
 				IID_PPV_ARGS(&dsvResource)
@@ -316,7 +291,7 @@ public:
 		viewport.TopLeftX = 0.f;
 		viewport.TopLeftY = 0.f;
 		viewport.MaxDepth = 1.0f;
-		viewport.MinDepth = 1.0f;
+		viewport.MinDepth = 0.0f;
 
 		scissorRect.bottom = 720.f;
 		scissorRect.top = 0.f;
@@ -363,7 +338,7 @@ public:
 
 		ComPtr<ID3D12GraphicsCommandList> tempCmdList;
 
-		TIF(mainDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, tempAllocator.Get(), pipelineState.Get(), IID_PPV_ARGS(&tempCmdList)));
+		TIF(mainDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, tempAllocator.Get(), nullptr, IID_PPV_ARGS(&tempCmdList)));
 
 		tempCmdList->Close();
 
@@ -434,8 +409,8 @@ public:
 			textureData.RowPitch = texture.texWidth * 4U;
 			textureData.SlicePitch = textureData.RowPitch * texture.texHeight;
 
-			tempCmdList->Reset(tempAllocator.Get(), pipelineState.Get());
-
+			tempCmdList->Reset(tempAllocator.Get(), nullptr);
+			
 			UpdateSubresources(tempCmdList.Get(), textureImage.Get(), textureUploadHeap.Get(), 0, 0, 1, &textureData);
 			tempCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(textureImage.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 
@@ -524,7 +499,7 @@ public:
 			vertexData.SlicePitch = vertexData.RowPitch * currDrawableHandle.vertices.size();
 
 			tempAllocator->Reset();
-			tempCmdList->Reset(tempAllocator.Get(), pipelineState.Get());
+			tempCmdList->Reset(tempAllocator.Get(), nullptr);
 
 			UpdateSubresources(tempCmdList.Get(), currDrawableHandle.vertexBuffer.Get(), vertexUploadHeap.Get(), 0, 0, 1, &vertexData);
 			tempCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(currDrawableHandle.vertexBuffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER));
@@ -573,7 +548,7 @@ public:
 			indexData.SlicePitch = indexData.RowPitch * drawable.indices.size();
 
 			tempAllocator->Reset();
-			tempCmdList->Reset(tempAllocator.Get(), pipelineState.Get());
+			tempCmdList->Reset(tempAllocator.Get(), nullptr);
 
 			UpdateSubresources(tempCmdList.Get(), currDrawableHandle.indexBuffer.Get(), indexUploadHeap.Get(), 0, 0, 1, &indexData);
 			tempCmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(currDrawableHandle.indexBuffer.Get(), D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER));
@@ -603,6 +578,7 @@ public:
 	}
 
 	void processDrawables() {
+
 		auto makeBuffersTask = std::async(std::launch::async,
 			[&]() {
 				std::for_each(std::execution::par,
@@ -614,17 +590,16 @@ public:
 		);
 			}
 		);
-
+		
 		makeBuffersTask.wait();
 
 		drawables.clear();
 		drawables.shrink_to_fit();
 
-		std::cerr << "\nAll drawables processed.\n";
+		std::cerr << "\nDrawables processed:" << drawableHandles.size() << "\n";
 	}
 
 	void LoadAssets() {
-		//creating an empty root signature(?)
 		{
 			D3D12_DESCRIPTOR_RANGE1 textureRange;
 			textureRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
@@ -632,7 +607,7 @@ public:
 			textureRange.BaseShaderRegister = 0;
 			textureRange.RegisterSpace = 0;
 			textureRange.Flags = D3D12_DESCRIPTOR_RANGE_FLAG_DATA_STATIC;
-			textureRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;//?
+			textureRange.OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
 
 			D3D12_ROOT_PARAMETER1 vsTransform;
 			vsTransform.ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
@@ -746,9 +721,6 @@ public:
 				}
 			};
 
-			D3D12_DEPTH_STENCIL_DESC depthStencilDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-			depthStencilDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
-
 			//make pipeline
 			D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
 			psoDesc.InputLayout = { inputElementDescs, _countof(inputElementDescs) };
@@ -756,8 +728,9 @@ public:
 			psoDesc.VS = { reinterpret_cast<UINT8*>(vertexShader->GetBufferPointer()), vertexShader->GetBufferSize() };
 			psoDesc.PS = { reinterpret_cast<UINT8*>(pixelShader->GetBufferPointer()), pixelShader->GetBufferSize() };
 			psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+			psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;
 			psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-			psoDesc.DepthStencilState = depthStencilDesc;
+			psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 			psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 			psoDesc.NumRenderTargets = 1;
 			psoDesc.RTVFormats[0] = DXGI_FORMAT_R8G8B8A8_UNORM;
@@ -769,7 +742,7 @@ public:
 		}
 
 		//make command list
-		TIF(mainDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commAllocator.Get(), pipelineState.Get(), IID_PPV_ARGS(&commList)));
+		TIF(mainDevice->CreateCommandList(0, D3D12_COMMAND_LIST_TYPE_DIRECT, commAllocator.Get(), nullptr, IID_PPV_ARGS(&commList)));
 		TIF(commList->Close());
 
 		processDrawables();
@@ -873,9 +846,10 @@ public:
 	void PopulateCommandList() {
 		TIF(commAllocator->Reset());
 
-		TIF(commList->Reset(commAllocator.Get(), pipelineState.Get()));
+		TIF(commList->Reset(commAllocator.Get(), nullptr));
 
 		commList->SetGraphicsRootSignature(mainRootSignature.Get());
+		commList->SetPipelineState(pipelineState.Get());
 
 		ID3D12DescriptorHeap* ppHeaps[] = { srvHeap.Get() };
 		commList->SetDescriptorHeaps(_countof(ppHeaps), ppHeaps);
@@ -891,10 +865,10 @@ public:
 		CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvHeap->GetCPUDescriptorHandleForHeapStart(), frameIndex, rtvDescriptorSize);
 		CD3DX12_CPU_DESCRIPTOR_HANDLE dsvHandle(dsvHeap->GetCPUDescriptorHandleForHeapStart());
 
-		const float clearColor[] = { 0.4f, 0.2f, 0.0f, 1.0f };
+		const float clearColor[] = { 0.4f, 0.5f, 0.6f, 1.0f };
 		commList->OMSetRenderTargets(1, &rtvHandle, FALSE, &dsvHandle);
 		commList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
-		commList->ClearDepthStencilView(dsvHandle, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+		commList->ClearDepthStencilView(dsvHeap->GetCPUDescriptorHandleForHeapStart(), D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
 
 		commList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -921,16 +895,20 @@ public:
 };
 
 int main() {
+#if defined(_DEBUG)
 	try {
+#endif
 		GLTFParser sponzaParser;
 		sponzaParser.parse_sponza("../models/Sponza/glTF/Sponza.gltf");
 		DX12Sponza app(1280, 720, sponzaParser.drawables);
 		app.run();
+#if defined(_DEBUG)
 	}
 	catch (const std::exception& e) {
 		std::cerr << e.what() << std::endl;
 		return EXIT_FAILURE;
 	}
+#endif
 
 	return EXIT_SUCCESS;
 }
