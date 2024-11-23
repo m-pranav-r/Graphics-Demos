@@ -10,6 +10,10 @@ A compute culling demo. Instance object data is sent to compute shader, which th
 
 A cascaded shadow mapping demo. Can choose number of splits and also includes toggles for PCF and for visualising chosen cascades. UI shows shadow maps drawn each frame among other things.
 
+### demo-skeletal-anim
+
+A simple demo to demonstrate skeletal animation on a basic skinned mesh.
+
 ### demo-quick-cone-mapping
 
 A demo to demonstrate Quick Cone Mapping. In progress.

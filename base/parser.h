@@ -7,6 +7,7 @@
 #define GLM_ENABLE_EXPERIMENTAL
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/type_ptr.hpp>
 #include <glm/gtx/hash.hpp>
 #include <glm/gtx/quaternion.hpp>
 #endif
@@ -27,6 +28,19 @@ enum TextureType {
 	NORMAL = 2,
 	EMISSIVE = 3,
 	OCCLUSION = 4
+};
+
+enum AnimType {
+	TRANS = 0,
+	ROT = 1,
+	SCALE = 2,
+	WEIGHTS = 3
+};
+
+enum AnimInterpType {
+	LINEAR = 0,
+	STEP = 1,
+	CUBICSPLINE = 2
 };
 
 std::string getMimeType(fastgltf::MimeType mimeType);
@@ -52,6 +66,26 @@ public:
 	bool hasBase = false, hasNormal = false, hasMR = false, hasEmissive = false, hasOcclusion = false, isAlphaModeMask = false;
 };
 
+struct Joint {
+	std::vector<size_t> children;
+	glm::mat4 transform, globalTransform;
+};
+
+struct Animation {
+	AnimType type;
+	AnimInterpType interpType;
+	size_t jointIdx;				// using only for single-use channels
+	std::vector<float> keyframeTimings;
+	std::variant< std::vector<glm::vec3>,std::vector<glm::vec4> > keyframeValues;
+};
+
+class Skeleton {
+public:
+	std::vector<glm::mat4> invBindMatrices;
+	std::vector<Joint> joints;		// joint indices are -1'ed all over
+	std::vector<Animation> animations;
+};
+
 class Drawable {
 public:
 	std::vector<std::uint32_t> indices;
@@ -59,8 +93,12 @@ public:
 	std::vector<glm::vec3> normals;
 	std::vector<glm::vec4> tangents;
 	std::vector<glm::vec2> texCoords;
+	std::vector<glm::vec4> joints;
+	std::vector<glm::vec4> weights;
 	Material mat;
+	Skeleton skeleton;
 	bool hasTangents = false;
+	bool hasAnims = false;
 	fastgltf::TRS transformData;
 };
 

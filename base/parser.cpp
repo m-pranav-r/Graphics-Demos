@@ -370,13 +370,16 @@ void GLTFParser::parse(std::filesystem::path path) {
 	data.loadFromFile(path);
 
 	auto assetRef = parser.loadGltfBinary(&data, path.parent_path(), fastgltf::Options::None);
+		
+	if (auto error = assetRef.error(); error == fastgltf::Error::InvalidGLB) {
+		assetRef = parser.loadGltf(&data, path.parent_path(), fastgltf::Options::None);
 
-	if (auto error = assetRef.error(); error != fastgltf::Error::None) {
-		throw std::runtime_error("failed to load asset!");
+		if (auto error = assetRef.error(); error != fastgltf::Error::None) {
+			throw std::runtime_error("failed to load asset!");
+		}
 	}
-	//if (isDebugEnv) {
+
 	validateGLTF(assetRef.get());
-	//}
 
 	fastgltf::Asset& asset = assetRef.get();
 
@@ -392,27 +395,27 @@ void GLTFParser::parse(std::filesystem::path path) {
 		auto skinIndex = currNode.skinIndex;
 		auto lightIndex = currNode.lightIndex;
 
-		std::cout << "NODE DATA:\n\n";
+		std::cout << "\nStarting to parse node " << node << " data, node has... \n";
 
-		if (meshIndex.has_value()) std::cout << "mesh present...\n";
-		if (cameraIndex.has_value()) std::cout << "camera present...\n";
-		if (skinIndex.has_value()) std::cout << "skin present...\n";
-		if (lightIndex.has_value()) std::cout << "light present...\n";
+		if (meshIndex.has_value()) std::cout << "\tmesh present...\n";
+		if (cameraIndex.has_value()) std::cout << "\tcamera present...\n";
+		if (skinIndex.has_value()) std::cout << "\tskin present...\n";
+		if (lightIndex.has_value()) std::cout << "\tlight present...\n";
 
-		//compute trs matrix
 		model.transformData = std::get<fastgltf::TRS>(currNode.transform);
 
-		std::cout << "\nNODE DATA COMPLETE.\n";
+		std::cout << "...end of node listed node indices.\n";
+
+		model.hasAnims = asset.animations.size() ? true : false;
 
 		if (meshIndex.has_value()) {
 			fastgltf::Mesh currMesh = asset.meshes[meshIndex.value()];
 
 			for (auto& primitive : currMesh.primitives) {
 				renderingMode = primitive.type;
-				std::cout << "size: " << primitive.attributes.size() << "\n";
+				std::cout << "\n\tNode mesh primitive attributes present: " << primitive.attributes.size() << "\n";
 				for (auto attrib : primitive.attributes) {
-					std::cout << "ACCESSOR DATA:\n" <<
-						attrib.first << "	" << attrib.second << "\n";
+					std::cout << "\t\t" << attrib.first << "	" << attrib.second << "\n";
 					if (attrib.first == "NORMAL") {
 						auto& accessor = asset.accessors[attrib.second];
 						model.normals.resize(accessor.count);
@@ -451,6 +454,24 @@ void GLTFParser::parse(std::filesystem::path path) {
 							model.texCoords[idx++] = index;
 							});
 					}
+					else if (attrib.first == "JOINTS_0") {
+						auto& accessor = asset.accessors[attrib.second];
+						model.joints.resize(accessor.count);
+
+						std::size_t idx = 0;
+						fastgltf::iterateAccessor<glm::vec4>(asset, accessor, [&](glm::vec4 index) {
+							model.joints[idx++] = index;
+							});
+					}
+					else if (attrib.first == "WEIGHTS_0") {
+						auto& accessor = asset.accessors[attrib.second];
+						model.weights.resize(accessor.count);
+
+						std::size_t idx = 0;
+						fastgltf::iterateAccessor<glm::vec4>(asset, accessor, [&](glm::vec4 index) {
+							model.weights[idx++] = index;
+							});
+					}
 				}
 			}
 			fastgltf::Primitive& currPrim = currMesh.primitives[0];
@@ -464,63 +485,164 @@ void GLTFParser::parse(std::filesystem::path path) {
 					});
 			}
 
-			auto& currMaterial = asset.materials[currPrim.materialIndex.value()];
+			if (currPrim.materialIndex.has_value()) {
+				std::cout << "\tNode has material data, parsing...\n";
 
-			model.mat.baseColorTex.load(
-				asset,
-				currMaterial.pbrData.baseColorTexture.value().textureIndex,
-				TextureType::BASE,
-				currMaterial.pbrData.baseColorFactor,
-				currMaterial.pbrData.baseColorTexture.value().texCoordIndex
-			);
+				auto& currMaterial = asset.materials[currPrim.materialIndex.value()];
 
-			model.mat.metalRoughTex.load(
-				asset,
-				currMaterial.pbrData.metallicRoughnessTexture.value().textureIndex,
-				TextureType::METALLIC_ROUGHNESS,
-				std::array<float, 4>{
-				currMaterial.pbrData.metallicFactor,
-					currMaterial.pbrData.roughnessFactor,
-					0,
-					0
-			},
-				currMaterial.pbrData.metallicRoughnessTexture.value().texCoordIndex
-			);
-
-			model.mat.normalTex.load(
-				asset,
-				currMaterial.normalTexture.value().textureIndex,
-				TextureType::NORMAL,
-				std::array<float, 4>{currMaterial.normalTexture.value().scale},
-				currMaterial.normalTexture.value().texCoordIndex
-			);
-
-			if (currMaterial.emissiveTexture.has_value()) {
-				model.mat.hasEmissive = model.mat.emissiveTex.load(
+				model.mat.baseColorTex.load(
 					asset,
-					currMaterial.emissiveTexture.value().textureIndex,
-					TextureType::EMISSIVE,
+					currMaterial.pbrData.baseColorTexture.value().textureIndex,
+					TextureType::BASE,
+					currMaterial.pbrData.baseColorFactor,
+					currMaterial.pbrData.baseColorTexture.value().texCoordIndex
+				);
+
+				model.mat.metalRoughTex.load(
+					asset,
+					currMaterial.pbrData.metallicRoughnessTexture.value().textureIndex,
+					TextureType::METALLIC_ROUGHNESS,
 					std::array<float, 4>{
-					currMaterial.emissiveFactor[0],
-						currMaterial.emissiveFactor[1],
-						currMaterial.emissiveFactor[2],
-						1
+					currMaterial.pbrData.metallicFactor,
+						currMaterial.pbrData.roughnessFactor,
+						0,
+						0
 				},
-					currMaterial.emissiveTexture.value().texCoordIndex
+					currMaterial.pbrData.metallicRoughnessTexture.value().texCoordIndex
 				);
 
-			}
-
-			if (currMaterial.occlusionTexture.has_value()) {
-				model.mat.hasOcclusion = model.mat.occlusionTex.load(
+				model.mat.normalTex.load(
 					asset,
-					currMaterial.occlusionTexture.value().textureIndex,
-					TextureType::OCCLUSION,
-					std::array<float, 4>{currMaterial.occlusionTexture.value().strength},
-					currMaterial.occlusionTexture.value().texCoordIndex
+					currMaterial.normalTexture.value().textureIndex,
+					TextureType::NORMAL,
+					std::array<float, 4>{currMaterial.normalTexture.value().scale},
+					currMaterial.normalTexture.value().texCoordIndex
 				);
+
+				if (currMaterial.emissiveTexture.has_value()) {
+					model.mat.hasEmissive = model.mat.emissiveTex.load(
+						asset,
+						currMaterial.emissiveTexture.value().textureIndex,
+						TextureType::EMISSIVE,
+						std::array<float, 4>{
+						currMaterial.emissiveFactor[0],
+							currMaterial.emissiveFactor[1],
+							currMaterial.emissiveFactor[2],
+							1
+					},
+						currMaterial.emissiveTexture.value().texCoordIndex
+					);
+
+				}
+
+				if (currMaterial.occlusionTexture.has_value()) {
+					model.mat.hasOcclusion = model.mat.occlusionTex.load(
+						asset,
+						currMaterial.occlusionTexture.value().textureIndex,
+						TextureType::OCCLUSION,
+						std::array<float, 4>{currMaterial.occlusionTexture.value().strength},
+						currMaterial.occlusionTexture.value().texCoordIndex
+					);
+				}
 			}
 
+			std::cout << "\t...mesh parsing done.\n";
+		}
+
+		if (skinIndex.has_value()) {
+			std::cout << "\n\tNode has skin data, parsing...";
+			fastgltf::Skin currSkin = asset.skins[skinIndex.value()];
+
+			auto numJoints = currSkin.joints.size();
+			model.skeleton.joints.resize(numJoints);
+
+			auto& accessor = asset.accessors[currSkin.inverseBindMatrices.value()];
+			model.skeleton.invBindMatrices.resize(accessor.count);
+
+			std::size_t idx = 0;
+			fastgltf::iterateAccessor<glm::mat4>(asset, accessor, [&](glm::mat4 index) {
+				model.skeleton.invBindMatrices[idx++] = index;
+				}
+			);
+
+			for (auto& currJointIdx : currSkin.joints) {
+				Joint joint;
+				auto currJoint = asset.nodes[currJointIdx];
+				
+				if (currJoint.transform.index() == 0) {
+					auto TRS = std::get<fastgltf::TRS>(currJoint.transform);
+					glm::mat4 matrix = glm::mat4(1.0f);
+					matrix = glm::scale(matrix, glm::make_vec3(TRS.scale.data()));
+					matrix = glm::toMat4(glm::quat(TRS.rotation[3], TRS.rotation[0], TRS.rotation[1], TRS.rotation[2])) * matrix;	//gltf gives x,y,z,w and glm expects w,x,y,z
+					matrix = glm::translate(matrix, glm::make_vec3(TRS.translation.data()));
+					joint.transform = matrix;
+				} else {
+					auto matrix = std::get<fastgltf::Node::TransformMatrix>(currJoint.transform);
+					joint.transform = glm::make_mat4(matrix.data());
+				}
+				joint.globalTransform = glm::mat4(1.0f);
+
+				joint.children.reserve(currJoint.children.size());
+				for (size_t i = 0; i < currJoint.children.size(); i++)
+					joint.children.push_back(currJoint.children[i]);	//i hate this
+
+				model.skeleton.joints[currJointIdx - 1] = joint;
+			}
+
+			for (auto& currAnim : asset.animations) {
+				for (auto& channel : currAnim.channels) {
+					fastgltf::AnimationSampler currSampler = currAnim.samplers[channel.samplerIndex];
+					
+					Animation anim;
+					anim.type =
+						channel.path == fastgltf::AnimationPath::Translation ? AnimType::TRANS :
+						channel.path == fastgltf::AnimationPath::Rotation ? AnimType::ROT :
+						channel.path == fastgltf::AnimationPath::Scale ? AnimType::SCALE : AnimType::WEIGHTS;
+					
+					anim.interpType =
+						currSampler.interpolation == fastgltf::AnimationInterpolation::Linear ? AnimInterpType::LINEAR :
+						currSampler.interpolation == fastgltf::AnimationInterpolation::Step ? AnimInterpType::STEP : AnimInterpType::CUBICSPLINE;
+					
+					anim.jointIdx = channel.nodeIndex.value();
+
+					{
+						auto animInputAccessor = asset.accessors[currSampler.inputAccessor];
+						std::size_t idx = 0;
+						anim.keyframeTimings.resize(animInputAccessor.count);
+						fastgltf::iterateAccessor<float>(asset, animInputAccessor, [&](float index) {
+							anim.keyframeTimings[idx++] = index;
+							}
+						);
+					}
+
+					{
+						auto animOutputAccessor = asset.accessors[currSampler.outputAccessor];
+						std::size_t idx = 0;
+						if (anim.type == AnimType::ROT) {
+							anim.keyframeValues.emplace<1>(std::vector<glm::vec4>());
+							auto vecPointer = &std::get<1>(anim.keyframeValues);
+							vecPointer->resize(animOutputAccessor.count);
+							fastgltf::iterateAccessor<glm::vec4>(asset, animOutputAccessor, [&](glm::vec4 index) {
+								vecPointer->operator[](idx++) = index;
+								}
+							);
+
+						} else {
+							anim.keyframeValues.emplace<0>(std::vector<glm::vec3>());
+							auto vecPointer = &std::get<0>(anim.keyframeValues);
+							vecPointer->resize(animOutputAccessor.count);
+							fastgltf::iterateAccessor<glm::vec3>(asset, accessor, [&](glm::vec3 index) {
+								vecPointer->operator[](idx++) = index;
+								}
+							);
+						}
+					}
+
+					model.skeleton.animations.push_back(anim);
+				}
+			}
+
+			std::cout << " parsed\n";
 		}
 	}
 
