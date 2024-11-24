@@ -67,8 +67,12 @@ public:
 };
 
 struct Joint {
+	struct Transform {
+		glm::vec3 trans, scale;
+		glm::vec4 rot;
+	};
 	std::vector<size_t> children;
-	glm::mat4 transform, globalTransform;
+	Transform global, initial;
 };
 
 struct Animation {

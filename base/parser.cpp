@@ -369,10 +369,10 @@ void GLTFParser::parse(std::filesystem::path path) {
 	fastgltf::GltfDataBuffer data;
 	data.loadFromFile(path);
 
-	auto assetRef = parser.loadGltfBinary(&data, path.parent_path(), fastgltf::Options::None);
+	auto assetRef = parser.loadGltfBinary(&data, path.parent_path(), fastgltf::Options::DecomposeNodeMatrices);
 		
 	if (auto error = assetRef.error(); error == fastgltf::Error::InvalidGLB) {
-		assetRef = parser.loadGltf(&data, path.parent_path(), fastgltf::Options::None);
+		assetRef = parser.loadGltf(&data, path.parent_path(), fastgltf::Options::DecomposeNodeMatrices);
 
 		if (auto error = assetRef.error(); error != fastgltf::Error::None) {
 			throw std::runtime_error("failed to load asset!");
@@ -569,18 +569,10 @@ void GLTFParser::parse(std::filesystem::path path) {
 				Joint joint;
 				auto currJoint = asset.nodes[currJointIdx];
 				
-				if (currJoint.transform.index() == 0) {
-					auto TRS = std::get<fastgltf::TRS>(currJoint.transform);
-					glm::mat4 matrix = glm::mat4(1.0f);
-					matrix = glm::scale(matrix, glm::make_vec3(TRS.scale.data()));
-					matrix = glm::toMat4(glm::quat(TRS.rotation[3], TRS.rotation[0], TRS.rotation[1], TRS.rotation[2])) * matrix;	//gltf gives x,y,z,w and glm expects w,x,y,z
-					matrix = glm::translate(matrix, glm::make_vec3(TRS.translation.data()));
-					joint.transform = matrix;
-				} else {
-					auto matrix = std::get<fastgltf::Node::TransformMatrix>(currJoint.transform);
-					joint.transform = glm::make_mat4(matrix.data());
-				}
-				joint.globalTransform = glm::mat4(1.0f);
+				auto TRS = std::get<fastgltf::TRS>(currJoint.transform);
+				joint.initial.trans = glm::make_vec3(TRS.translation.data());
+				joint.initial.rot = glm::make_vec4(TRS.rotation.data());	//remember the gltf-to-glm wxyz thing
+				joint.initial.scale = glm::make_vec3(TRS.scale.data());
 
 				joint.children.reserve(currJoint.children.size());
 				for (size_t i = 0; i < currJoint.children.size(); i++)

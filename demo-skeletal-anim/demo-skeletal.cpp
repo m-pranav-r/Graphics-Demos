@@ -76,8 +76,6 @@ struct UniformBufferObject {
 	glm::mat4 model;
 	glm::mat4 view;
 	glm::mat4 proj;
-	glm::mat4 joints[2];
-	glm::vec3 camPos;
 };
 
 const std::vector<const char*> validationlayers = {
@@ -118,7 +116,7 @@ static std::vector<char> readFile(const std::string& fileName) {
 Camera camera;
 
 bool playAnim = false;
-double scalingFactor = 0.0001;
+double scalingFactor = 4.0f;
 
 class SkeletalAnimTest {
 public:
@@ -183,7 +181,7 @@ private:
 		std::vector<Vertex> vertices;
 		VkBuffer vertexBuffer, indexBuffer;
 		VkDeviceMemory vertexBufferMemory, indexBufferMemory;
-		size_t indices;
+		size_t indices, numJoints;
 	} drawData;
 
 	struct {
@@ -191,6 +189,15 @@ private:
 		std::vector<VkDeviceMemory> buffersMemory;
 		std::vector<void*> buffersMapped;
 	} uniform;
+
+	struct {
+		VkBuffer buffer;
+		VkDeviceMemory memory;
+		void* mapped;
+		
+		std::vector<glm::mat4> matrices;
+		std::vector<Joint::Transform> globalTransforms;
+	} joint;
 
 	std::vector<VkCommandBuffer> commandBuffers;
 	std::vector<VkSemaphore >imageAvailableSemaphores;
@@ -267,6 +274,8 @@ private:
 
 		createImageViews();
 
+		processMesh(model);
+
 		createDescriptorSetLayouts();
 		createGraphicsPipelines();
 
@@ -316,9 +325,8 @@ private:
 
 		commHelper.endSingleTimeCommands(commandBuffer, pools.command, queues.graphics);
 
-		processMesh(model);
-
 		createUniformBuffers();
+		createJointBuffer();
 		createDescriptorPool();
 		createDescriptorSets();
 		createCommandBuffers();
@@ -357,14 +365,20 @@ private:
 		uboLayoutBinding.binding = 0;
 		uboLayoutBinding.descriptorCount = 1;
 		uboLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		uboLayoutBinding.pImmutableSamplers = nullptr;
 		uboLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+		VkDescriptorSetLayoutBinding jointLayoutBinding{};
+		jointLayoutBinding.binding = 1;
+		jointLayoutBinding.descriptorCount = 1; // static_cast<uint32_t>(drawData.numJoints);
+		jointLayoutBinding.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		jointLayoutBinding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 
 		VkDescriptorSetLayoutCreateInfo layoutInfo{};
 		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 
 		std::vector<VkDescriptorSetLayoutBinding> bindingsAll = {
-			uboLayoutBinding
+			uboLayoutBinding,
+			jointLayoutBinding
 		};
 		layoutInfo.bindingCount = static_cast<uint32_t>(bindingsAll.size());
 		layoutInfo.pBindings = bindingsAll.data();
@@ -672,6 +686,8 @@ private:
 		drawable.indices.clear();
 		drawable.indices.shrink_to_fit();
 
+		drawData.numJoints = drawable.skeleton.joints.size();
+
 		vkDestroyCommandPool(device, tempPool, nullptr);
 	}
 
@@ -694,13 +710,36 @@ private:
 			vkMapMemory(device, uniform.buffersMemory[i], 0, bufferSize, 0, &uniform.buffersMapped[i]);
 		}
 	}
+
+	void createJointBuffer() {
+		VkDeviceSize bufferSize = sizeof(glm::mat4) * drawData.numJoints;
+
+		memHelper.createBuffer(
+			bufferSize,
+			VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+			VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+			joint.buffer,
+			joint.memory,
+			QUEUE_TYPE_GRAPHICS | QUEUE_TYPE_TRANSFER
+		);
+		
+		vkMapMemory(device, joint.memory, 0, bufferSize, 0, &joint.mapped);
+		joint.matrices.resize(drawData.numJoints);
+		joint.globalTransforms.resize(drawData.numJoints);
+	}
+
 	void createDescriptorPool() {
 		VkDescriptorPoolSize uniformPoolInfo = {
 			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
 			.descriptorCount = 2
 		};
 
-		std::array<VkDescriptorPoolSize, 1> poolSizes = { uniformPoolInfo };
+		VkDescriptorPoolSize storagePoolInfo = {
+			.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.descriptorCount = 2
+		};
+
+		std::array<VkDescriptorPoolSize, 2> poolSizes = { uniformPoolInfo, storagePoolInfo };
 
 		VkDescriptorPoolCreateInfo poolInfo{};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -737,7 +776,12 @@ private:
 				uniformBufferInfo.offset = 0;
 				uniformBufferInfo.range = sizeof(UniformBufferObject);
 
-				std::array<VkWriteDescriptorSet, 1> descWrites{};
+				VkDescriptorBufferInfo jointBufferInfo{};
+				jointBufferInfo.buffer = joint.buffer;
+				jointBufferInfo.offset = 0;
+				jointBufferInfo.range = sizeof(glm::mat4) * drawData.numJoints;
+
+				std::array<VkWriteDescriptorSet, 2> descWrites{};
 
 				descWrites[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
 				descWrites[0].dstSet = renderState.descriptorSets[i];
@@ -747,7 +791,15 @@ private:
 				descWrites[0].descriptorCount = 1;
 				descWrites[0].pBufferInfo = &uniformBufferInfo;
 
-				vkUpdateDescriptorSets(device, 1, descWrites.data(), 0, nullptr);
+				descWrites[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				descWrites[1].dstSet = renderState.descriptorSets[i];
+				descWrites[1].dstBinding = 1;
+				descWrites[1].dstArrayElement = 0;
+				descWrites[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+				descWrites[1].descriptorCount = 1;
+				descWrites[1].pBufferInfo = &jointBufferInfo;
+
+				vkUpdateDescriptorSets(device, static_cast<uint32_t>(descWrites.size()), descWrites.data(), 0, nullptr);
 			}
 		}
 	}
@@ -955,6 +1007,10 @@ private:
 		return x * (1.f - t) + y * t;
 	}
 
+	glm::vec3 lerp(glm::vec3 x, glm::vec3 y, float t) {
+		return x * (1.f - t) + y * t;
+	}
+
 	void updateUniformBuffer(uint32_t currentImage, float deltaTime) {
 		camera.update(deltaTime);
 
@@ -963,45 +1019,85 @@ private:
 		ubo.view = camera.getViewMatrix();
 		ubo.proj = glm::perspective(glm::radians(45.0f), swapchain.extent.width / (float)swapchain.extent.height, 0.01f, 10.0f);
 		ubo.proj[1][1] *= -1;
-		ubo.camPos = camera.position;
-		
-		timeElapsed += deltaTime * scalingFactor;
-		if(playAnim) for (auto& anim : model.skeleton.animations) {
-			if (anim.type == AnimType::ROT) {
-				size_t timings = anim.keyframeTimings.size();
-				std::cout << timeElapsed;
-				std::cout << "\nTimings found: " << timings;
+
+		memcpy(uniform.buffersMapped[currentFrame], &ubo, sizeof(ubo));
+	}
+
+	void updateAnimations(float deltaTime) {
+		//check for any animations
+		//	if they need playing
+		//		calculate global transforms according to indicated pose
+		//		recalculate child global transforms
+		//	if no need of playing
+		//		copy initial transforms and make global transforms
+		//update buffer
+
+		for (size_t i = 0; i < joint.globalTransforms.size(); i++) {
+			joint.globalTransforms[i].trans = model.skeleton.joints[i].initial.trans;
+			joint.globalTransforms[i].rot = model.skeleton.joints[i].initial.rot;
+			joint.globalTransforms[i].scale = model.skeleton.joints[i].initial.scale;
+		}
+
+		if (playAnim) {
+			timeElapsed += deltaTime * scalingFactor;
+			for (auto& anim : model.skeleton.animations) {
+				size_t numTimings = anim.keyframeTimings.size();
 				size_t floorIndex = std::numeric_limits<size_t>::max();
-				for (size_t j = 0; j < anim.keyframeTimings.size() - 1; j++) {
-					if (anim.keyframeTimings[j] <= timeElapsed && anim.keyframeTimings[j+1] >= timeElapsed) {
+				for (size_t j = 0; j < numTimings - 1; j++) {
+					if (anim.keyframeTimings[j] <= timeElapsed && anim.keyframeTimings[j + 1] >= timeElapsed) {
 						floorIndex = j;
+						break;
 					}
 				}
-				if (floorIndex >= (anim.keyframeTimings.size() - 1)) {
+
+				if (floorIndex == std::numeric_limits<size_t>::max()) {
+					floorIndex = 0;
 					timeElapsed = 0.0f;
-
-					glm::vec4 rotAmount = std::get<std::vector<glm::vec4>>(anim.keyframeValues)[0];
-					model.skeleton.joints[anim.jointIdx - 1].globalTransform = glm::toMat4(glm::quat(rotAmount[3], rotAmount[0], rotAmount[1], rotAmount[2])) * model.skeleton.joints[anim.jointIdx - 1].transform;
-				}
-				else if (floorIndex != 0) {
-					glm::vec4 rotAmount_0 = std::get<std::vector<glm::vec4>>(anim.keyframeValues)[floorIndex];
-					glm::vec4 rotAmount_1 = std::get<std::vector<glm::vec4>>(anim.keyframeValues)[floorIndex + 1];
-					float interpValue = (timeElapsed - anim.keyframeTimings[floorIndex]) / (anim.keyframeTimings[floorIndex] - anim.keyframeTimings[floorIndex - 1]);
-					glm::vec4 finalRot = lerp(rotAmount_0, rotAmount_1, interpValue);
-					model.skeleton.joints[anim.jointIdx - 1].globalTransform = glm::toMat4(glm::quat(finalRot[3], finalRot[0], finalRot[1], finalRot[2])) * model.skeleton.joints[anim.jointIdx - 1].transform;
-				}
-				else {
-					glm::vec4 rotAmount = std::get<std::vector<glm::vec4>>(anim.keyframeValues)[0];
-					model.skeleton.joints[anim.jointIdx - 1].globalTransform = glm::toMat4(glm::quat(rotAmount[3], rotAmount[0], rotAmount[1], rotAmount[2])) * model.skeleton.joints[anim.jointIdx - 1].transform;
 				}
 
-				std::cout << " and timing selected: " << floorIndex <<"\n";
+				switch (anim.type)
+				{
+				case TRANS:
+				{
+					auto transAmount_0 = std::get<std::vector<glm::vec3>>(anim.keyframeValues)[floorIndex];
+					auto transAmount_1 = std::get<std::vector<glm::vec3>>(anim.keyframeValues)[floorIndex + 1];
+					float interpValue = (timeElapsed - anim.keyframeTimings[floorIndex]) / (anim.keyframeTimings[floorIndex + 1] - anim.keyframeTimings[floorIndex]);
+
+					joint.globalTransforms[anim.jointIdx - 1].trans = lerp(transAmount_0, transAmount_1, interpValue);
+					break;
+				}
+				case ROT:
+				{
+					auto rotAmount_0 = std::get<std::vector<glm::vec4>>(anim.keyframeValues)[floorIndex];
+					auto rotAmount_1 = std::get<std::vector<glm::vec4>>(anim.keyframeValues)[floorIndex + 1];
+					float interpValue = (timeElapsed - anim.keyframeTimings[floorIndex]) / (anim.keyframeTimings[floorIndex + 1] - anim.keyframeTimings[floorIndex]);
+
+					joint.globalTransforms[anim.jointIdx - 1].rot = lerp(rotAmount_0, rotAmount_1, interpValue);
+					break;
+				}
+				case SCALE:
+				{
+					auto scaleAmount_0 = std::get<std::vector<glm::vec3>>(anim.keyframeValues)[floorIndex];
+					auto scaleAmount_1 = std::get<std::vector<glm::vec3>>(anim.keyframeValues)[floorIndex + 1];
+					float interpValue = (timeElapsed - anim.keyframeTimings[floorIndex]) / (anim.keyframeTimings[floorIndex + 1] - anim.keyframeTimings[floorIndex]);
+
+					joint.globalTransforms[anim.jointIdx - 1].scale = lerp(scaleAmount_0, scaleAmount_1, interpValue);
+					break;
+				}
+				}
 			}
+		} 
+		
+		for (size_t i = 0; i < joint.globalTransforms.size(); i++) {
+			glm::mat4 matrix = glm::mat4(1.0f);
+			matrix = glm::translate(matrix, joint.globalTransforms[i].trans);
+			matrix = matrix * glm::mat4_cast(glm::quat(joint.globalTransforms[i].rot[3], joint.globalTransforms[i].rot[0], joint.globalTransforms[i].rot[1], joint.globalTransforms[i].rot[2]));
+			matrix = glm::scale(matrix, joint.globalTransforms[i].scale);
+
+			joint.matrices[i] = matrix * model.skeleton.invBindMatrices[i];
 		}
-		for (int i = 0; i < 2; i++) {
-			ubo.joints[i] = model.skeleton.invBindMatrices[i] * model.skeleton.joints[i].transform * model.skeleton.joints[i].globalTransform;
-		}
-		memcpy(uniform.buffersMapped[currentFrame], &ubo, sizeof(ubo));
+
+		memcpy(joint.mapped, reinterpret_cast<void*>(joint.matrices.data()), sizeof(glm::mat4) * joint.matrices.size());
 	}
 
 	void drawFrame() {
@@ -1023,7 +1119,9 @@ private:
 		recordCommandBuffer(commandBuffers[currentFrame], imageIndex);
 
 		auto latestTime = std::chrono::high_resolution_clock::now();
-		updateUniformBuffer(currentFrame, std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count());
+		auto deltaTime = std::chrono::duration<float, std::chrono::seconds::period>(latestTime - lastTime).count();
+		updateUniformBuffer(currentFrame, deltaTime);
+		updateAnimations(deltaTime);
 		lastTime = latestTime;
 
 		VkSubmitInfo submitInfo{};
