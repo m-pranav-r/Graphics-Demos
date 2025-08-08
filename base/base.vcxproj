@@ -120,7 +120,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\Users\pranav\Documents\Visual Studio 2022\Libraries\shaderc\include;C:\VulkanSDK\1.3.283.0\Include;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glm;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\include;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\%username%\Documents\Visual Studio 2022\Libraries\shaderc\include;%VULKAN_SDK%\Include;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\glm;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\include;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
@@ -129,7 +129,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <Lib>
-      <AdditionalLibraryDirectories>C:\VulkanSDK\1.3.283.0\Lib;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\shaderc\lib\built\Debug;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\gen\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>%VULKAN_SDK%\Lib;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\shaderc\lib\built\Debug;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\gen\Debug;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>fastgltf.lib; shaderc_combinedd.lib;</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>
@@ -143,7 +143,7 @@
       <ConformanceMode>true</ConformanceMode>
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <PrecompiledHeaderFile>pch.h</PrecompiledHeaderFile>
-      <AdditionalIncludeDirectories>C:\Users\pranav\Documents\Visual Studio 2022\Libraries\shaderc\include;C:\VulkanSDK\1.3.283.0\Include;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glm;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\include;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\\Documents\Visual Studio 2022\Libraries\shaderc\include;%VULKAN_SDK%\Include;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\stb-master;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\glm;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\include;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
@@ -154,7 +154,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <Lib>
-      <AdditionalLibraryDirectories>C:\VulkanSDK\1.3.283.0\Lib;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\shaderc\lib\built\Release;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\gen\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>%VULKAN_SDK%\Lib;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\shaderc\lib\built\Release;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\fastgltf-0.7.2\gen\Release;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <AdditionalDependencies>fastgltf.lib; shaderc_combined.lib;</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>

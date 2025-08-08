@@ -42,3 +42,11 @@ A DirectX12 port of the 'sponza-brute' demo.
 - fastgltf
 - glm
 - dear Imgui
+
+(Place these libraries in C:\Users\%username%\Documents\Visual Studio 2022\Libraries)
+
+## Compilation:
+
+ - Install the Vulkan and Windows SDKs
+ - Add "VULKAN_SDK" (with the value pointing to the SDK path) to your user variables list
+ - Should compile pretty normally once you hit build

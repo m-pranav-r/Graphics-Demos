@@ -71,8 +71,8 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <LibraryPath>C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\lib-vc2022;$(LibraryPath)</LibraryPath>
-    <IncludePath>C:\Users\pranav\Documents\Visual Studio 2022\Libraries\DirectX-Headers-1.614.1\include;C:\Users\pranav\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\include;$(IncludePath)</IncludePath>
+    <LibraryPath>C:\Users\%username%\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\lib-vc2022;$(LibraryPath)</LibraryPath>
+    <IncludePath>C:\Users\%username%\Documents\Visual Studio 2022\Libraries\DirectX-Headers-1.614.1\include;C:\Users\%username%\Documents\Visual Studio 2022\Libraries\glfw-3.3.9.bin.WIN64\include;$(IncludePath)</IncludePath>
     <OutDir>$(SolutionDir)$(Platform)-$(Configuration)\</OutDir>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
